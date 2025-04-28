@@ -5,6 +5,8 @@
 // @description  为特定页面的元素添加执行脚本按钮，改进质量检查逻辑，使用 progress__current
 // @author       xeoplise
 // @match        *://www.fallenlondon.com/*
+// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/version.js
+// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/version.js
 // @grant        none
 // ==/UserScript==
 
