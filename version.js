@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  为特定页面的元素添加执行脚本按钮
-// @author       Your Name
+// @author       xeoplise
 // @match        *://www.fallenlondon.com/*
 // @grant        none
 // ==/UserScript==
