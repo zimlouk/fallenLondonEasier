@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Fallen London Helper
+// @name         Fallen London Easier
 // @namespace    http://tampermonkey.net/
 // @version      2.0
 // @description  为特定页面的元素添加执行脚本按钮，改进质量检查逻辑，使用 progress__current
