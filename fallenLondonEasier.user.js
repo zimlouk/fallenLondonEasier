@@ -1,14 +1,17 @@
 // ==UserScript==
 // @name         Fallen London Easier
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/zimlouk/fallenLondonEasier
 // @version      2.0
-// @description  为特定页面的元素添加执行脚本按钮，改进质量检查逻辑，使用 progress__current
+// @description  为 Fallen London 页面添加快捷按钮并自动化操作
 // @author       xeoplise
 // @match        *://www.fallenlondon.com/*
-// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/version.js
-// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/version.js
+// @icon         https://www.fallenlondon.com/favicon.ico
 // @grant        none
+// @license      MIT
+// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonEasier.user.js
+// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonEasier.user.js
 // ==/UserScript==
+
 
 (function() {
     'use strict';
