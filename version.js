@@ -1,3 +1,25 @@
+// 创建并插入执行脚本按钮到每个 button 前
+function addScriptButtons() {
+    // 获取所有符合条件的按钮（button1 将根据这个条件而选中）
+    var allButtons = document.querySelectorAll('.js-tt.button.button--primary.button--margin.button--go');
+    
+    allButtons.forEach(function(targetButton) {
+        // 创建新的执行脚本按钮元素
+        var scriptButton = document.createElement('button');
+        scriptButton.className = 'js-tt button button--primary button--margin button--go';
+        scriptButton.type = 'button';
+        scriptButton.innerHTML = '<span>执行脚本</span>';
+
+        // 在当前目标按钮前插入新的执行脚本按钮
+        targetButton.parentNode.insertBefore(scriptButton, targetButton);
+
+        // 设置点击事件以触发脚本，传递当前目标按钮作为 button1
+        scriptButton.addEventListener('click', function() {
+            startScript(targetButton);
+        });
+    });
+}
+
 // 脚本主函数，接收目标 button1
 function startScript(button1) {
     // 询问用户输入的循环次数
