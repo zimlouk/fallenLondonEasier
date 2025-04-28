@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Fallen London Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.8
-// @description  为特定页面的元素添加执行脚本按钮，通过父元素的 data-branch-id 精确查找 Button1
+// @version      2.0
+// @description  为特定页面的元素添加执行脚本按钮，改进质量检查逻辑，使用 progress__current
 // @author       xeoplise
 // @match        *://www.fallenlondon.com/*
 // @grant        none
@@ -142,7 +142,17 @@
         if (isNaN(maxClicks) || maxClicks <= 0) { alert('循环次数输入无效...'); return; }
         var userInputQuality = prompt('请输入目标质量值:', '17');
         var targetQualityValue = parseInt(userInputQuality, 10);
-        if (isNaN(targetQualityValue) || targetQualityValue <= 0) { alert('目标质量值输入无效...'); return; }
+        // Check if the *parsed* value is valid. If user enters non-numeric, treat as invalid.
+        if (isNaN(targetQualityValue)) {
+             alert('目标质量值输入无效 (请输入数字)，脚本已终止');
+             console.error('目标质量值输入无效，脚本终止');
+             return;
+        }
+         // Allow 0 or negative if needed, but typically positive makes sense
+        if (targetQualityValue <= 0 && userInputQuality.trim() !== '0') { // Allow explicit 0
+             console.warn(`目标质量值 (${targetQualityValue}) 不是正数。请确认输入是否正确。`);
+        }
+
 
         // --- Get Parent Identifier ---
         const parentElementWithId = initialButton1.closest('[data-branch-id]'); // Find closest ancestor with the ID
@@ -186,21 +196,58 @@
             return button2;
          }
 
-        // 检查质量值
+        // Checks quality based on the *last* .progress__current element within any .quality-update__body
+        // Returns true if target met, false otherwise.
         function checkQualityValue() {
-            var qualitySpan = document.querySelector('.quality-name');
-            if (qualitySpan) {
-                var qualityText = qualitySpan.textContent;
-                var match = qualityText.match(/increased to (\d+)/);
-                if (match && parseInt(match[1], 10) === targetQualityValue) {
-                    alert(`值已经到了 ${targetQualityValue}，脚本终止!`);
-                    console.log(`目标质量 ${targetQualityValue} 已达到，脚本终止。`);
-                    stopScript();
-                    return true;
-                }
+            const updateBodies = document.querySelectorAll('.quality-update__body'); // Find all potential update sections
+
+            if (updateBodies.length === 0) {
+                // No quality update elements found using this more specific structure
+                console.log(" -> 未找到质量更新元素 (.quality-update__body)，忽略质量检查。");
+                return false;
             }
-            return false;
+
+            console.log(` -> 找到 ${updateBodies.length} 个 .quality-update__body 元素，正在检查最终值...`);
+            let targetMet = false;
+
+            updateBodies.forEach(body => {
+                if (targetMet) return; // Stop checking if already found in a previous body
+
+                // Optional: Get quality name for better logging
+                const qualityNameSpan = body.querySelector('.quality-name');
+                const qualityName = qualityNameSpan ? qualityNameSpan.textContent.trim() : '某个质量';
+
+                // Find the LAST progress__current element within this update body's progress bar
+                // This element reliably contains the *new* value
+                const lastProgressCurrent = body.querySelector('.progress .progress__current:last-of-type');
+
+                if (lastProgressCurrent) {
+                    const currentValueText = lastProgressCurrent.textContent.trim();
+                    const currentValue = parseInt(currentValueText, 10); // Parse the number
+                    console.log(`  --> 检查 ${qualityName}: 找到最终值元素，值为 "${currentValueText}"`);
+
+                    if (!isNaN(currentValue) && currentValue === targetQualityValue) {
+                        // Successfully parsed number AND it matches the target
+                        alert(`${qualityName} 的值已经达到了 ${targetQualityValue}，脚本终止!`);
+                        console.log(`  --> 目标质量 ${targetQualityValue} 已达到 (${qualityName})，脚本终止。`);
+                        targetMet = true; // Set flag
+                        stopScript();     // Stop the script
+                    } else if (isNaN(currentValue)) {
+                         // Could not parse number from the element
+                         console.warn(`  --> 无法从 "${currentValueText}" 解析数值 (${qualityName})。`);
+                    } else {
+                         // Parsed number, but it doesn't match the target
+                         console.log(`  --> 当前值 ${currentValue} 未达到目标 ${targetQualityValue} (${qualityName})。`);
+                    }
+                } else {
+                    // Structure might be different, or no progress bar shown for this update
+                     console.log(`  --> 未在此更新体中找到 .progress .progress__current:last-of-type 元素 (${qualityName})。`);
+                }
+            });
+
+            return targetMet; // Return true if found in any body, false otherwise
         }
+
 
         // --- Core Cycle Functions ---
 
@@ -251,11 +298,13 @@
                     findButton2IntervalId = null;
                     console.log('[Step 2a] 找到 Button2 (Try again)');
 
-                    if (checkQualityValue()) { // Check quality *before* clicking Button2
-                        console.log("[Step 2b] 目标质量已达到，脚本停止。");
-                        // stopScript() called inside checkQualityValue
+                    // Call the updated quality check
+                    if (checkQualityValue()) {
+                        // checkQualityValue returned true, meaning target was met and stopScript was called.
+                        console.log("[Step 2b] 目标质量已达到，脚本已停止。");
                     } else {
-                        console.log("[Step 2b] 目标质量未达到，点击 Button2。");
+                         // checkQualityValue returned false (target not met OR element not found)
+                        console.log("[Step 2b] 点击 Button2。");
                         button2.click();
                         // Schedule the next step: wait for Button1
                         clearTimeout(nextClickTimeoutId); // Clear just in case
@@ -299,7 +348,7 @@
                     return;
                 }
 
-                // --- Core Change: Query using the specific selector ---
+                // Query using the specific selector
                 console.log(` -> 正在使用选择器 "${button1Selector}" 查找 Button1...`);
                 const currentButton1 = document.querySelector(button1Selector);
 
@@ -386,7 +435,7 @@
     } // End of startScript
 
     // --- Initial Execution ---
-    console.log("FL Helper: Initializing (v1.8)...");
+    console.log("FL Helper: Initializing (v2.0)...");
     addMainToggleButton();
     addStopAllButton();
     setTimeout(() => {
