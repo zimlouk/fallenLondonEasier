@@ -1,8 +1,8 @@
 // 创建并插入执行脚本按钮到每个 button 前
 function addScriptButtons() {
-    // 获取所有符合条件的按钮（button1 将根据这个条件而选中）
+    // 获取所有符合条件的按钮
     var allButtons = document.querySelectorAll('.js-tt.button.button--primary.button--margin.button--go');
-    
+
     allButtons.forEach(function(targetButton) {
         // 创建新的执行脚本按钮元素
         var scriptButton = document.createElement('button');
@@ -33,8 +33,9 @@ function startScript(button1) {
     } else {
         var clickCount = 0;
         var mainInterval;
-        var scriptRunning = true;
+        var scriptRunning = true; // 用于控制脚本是否继续运行
 
+        // 查找 button2
         function findButton2() {
             var buttons2 = document.querySelectorAll('.button.button--primary');
             var button2;
@@ -46,6 +47,20 @@ function startScript(button1) {
             return button2;
         }
 
+        // 检查质量值
+        function checkQualityValue() {
+            var qualitySpan = document.querySelector('.quality-name');
+            if (qualitySpan) {
+                var qualityText = qualitySpan.textContent;
+                var match = qualityText.match(/increased to (\d+)/);
+                if (match && parseInt(match[1], 10) === 17) {
+                    alert('值已经到了17，脚本终止!');
+                    stopScript();
+                }
+            }
+        }
+
+        // 点击 button1 并检查
         function clickButton1AndCheck() {
             if (!scriptRunning) return;
 
@@ -55,10 +70,11 @@ function startScript(button1) {
             } else {
                 alert('Button1 is disabled or not set. Terminating the script.');
                 console.error('Button1 is disabled or not set, script terminates.');
-                stopScript();
+                stopScript(); // 停止脚本
             }
         }
 
+        // 点击 button2 后检查
         function clickButton2WhenAvailable() {
             var checkButton2Interval = setInterval(function() {
                 if (!scriptRunning) {
@@ -71,8 +87,10 @@ function startScript(button1) {
                     button2.click();
                     clearInterval(checkButton2Interval);
                     console.log('button2 clicked');
-                    
-                    // 延长检查button1出现的等待时间
+
+                    checkQualityValue(); // 检查质量值
+
+                    // 延长检查 button1 出现的等待时间
                     setTimeout(() => {
                         var checkButton1Interval = setInterval(function() {
                             if (!scriptRunning) {
@@ -84,7 +102,7 @@ function startScript(button1) {
                                 clearInterval(checkButton1Interval);
                                 clickCount++;
                                 console.log('button1 is ready for next click');
-                                
+
                                 if (clickCount >= maxClicks) {
                                     stopScript();
                                     console.log('点击结束');
@@ -102,8 +120,9 @@ function startScript(button1) {
         // 主循环定时器启动
         mainInterval = setInterval(clickButton1AndCheck, 3000); // 每 3000 毫秒执行一次主函数
 
+        // 手动终止脚本的命令
         function stopScript() {
-            scriptRunning = false;
+            scriptRunning = false; // 设置标志为 false 以停止所有操作
             if (mainInterval) {
                 clearInterval(mainInterval);
                 mainInterval = null;
