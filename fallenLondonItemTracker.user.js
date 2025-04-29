@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Fallen London Item Tracker
+// @name         Fallen London Item Tracker++
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      4.0
 // @description  Track multiple Fallen London items with target goals, shows styled category in tooltip. Updates via API intercept & /possessions page.
 // @author       xeoplise (enhanced by AI)
 // @match        https://www.fallenlondon.com/*
@@ -11,6 +11,8 @@
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @connect      api.fallenlondon.com
+// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonItemTracker.user.js
+// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonItemTracker.user.js
 // @license      MIT
 // ==/UserScript==
 
@@ -712,7 +714,7 @@
         try {
             const qualityId = parseInt(itemElement.getAttribute("data-quality-id"), 10);
             const quantityElement = itemElement.querySelector("span.js-item-value");
-            const buttonDiv = itemElement.querySelector('div[role="button"]'); // Source of aria-label sometimes
+            const buttonDiv = itemElement.querySelector('div[role="button"]');
             const imgElement = itemElement.querySelector("img");
             const ariaLabelSource = buttonDiv || itemElement;
             const ariaLabel = ariaLabelSource?.getAttribute("aria-label") ?? "";
@@ -724,41 +726,45 @@
             const currentIcon = imgSrc.startsWith("//") ? `https:${imgSrc}` : imgSrc;
 
             // --- Parse Name, Category, Description from aria-label ---
-            // Example aria-label: "1 x Item Name; Category; Description; Click to use"
             const parts = ariaLabel.split(/;\s*/);
-            const nameMatch = parts[0]?.match(/^[^×]+?x?\s*(.*?)\s*(?:×\s*\d+)?$/); // Flexible name extraction
-            const itemName = nameMatch?.[1]?.trim() ?? `Item ${qualityId}`; // Fallback name
+
+            // --- REVISED Regex V3 ---
+            // Looks for an optional, specific prefix "Number(s) x Space". Captures the rest as name.
+            const nameMatch = parts[0]?.match(/^(?:\d[\d,\s]*x\s+)?(.+?)(?:\s*×\s*\d+)?$/);
+            const itemName = nameMatch?.[1]?.trim() ?? // Use group 1 if regex matches
+                                parts[0]?.trim() ??       // Fallback to trimmed parts[0]
+                                `Item ${qualityId}`;      // Final fallback
 
             let itemCategory = "";
             let itemDescription = "";
             let isUsable = false;
             const categoryRegex = new RegExp(`\\b(${KNOWN_CATEGORIES.join("|")})\\b`, "i");
 
-            // Start parsing from the second part (after name/quantity)
             let descParts = [];
             let categoryFound = false;
             for (let i = 1; i < parts.length; i++) {
                 const part = parts[i].trim();
-                if (!part) continue; // Skip empty parts
+                if (!part) continue;
 
-                 // Check for "Click on this item..." usability hint FIRST
-                 if (part.toLowerCase().startsWith("click on this item")) {
+                    if (part.toLowerCase().startsWith("click on this item")) {
                     isUsable = true;
-                    continue; // Don't include this in description
-                 }
+                    continue;
+                    }
 
                 const categoryMatch = !categoryFound ? part.match(categoryRegex) : null;
                 if (categoryMatch) {
-                    itemCategory = categoryMatch[0]; // Take the first matching category word
-                    // Include text after category on the same line in the description
+                    itemCategory = categoryMatch[0];
                     const remainingText = part.substring(part.indexOf(itemCategory) + itemCategory.length).trim();
                     if (remainingText) descParts.push(remainingText);
                     categoryFound = true;
                 } else {
-                    descParts.push(part); // Add non-category part to description
+                    descParts.push(part);
                 }
             }
-            itemDescription = descParts.join("; ").trim(); // Re-join description parts
+            itemDescription = descParts.join("; ").trim();
+
+            // --- Debugging log ---
+            // console.log(`Parsed ID ${qualityId}: Qty=${itemQuantity}, Name="${itemName}", Cat="${itemCategory}", Desc="${itemDescription}", Use=${isUsable}, Label="${parts[0]}"`);
 
             return {
                 id: qualityId, name: itemName, quantity: itemQuantity, icon: currentIcon,
