@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fallen London Easier
 // @namespace    https://github.com/zimlouk/fallenLondonEasier
-// @version      2.0
+// @version      2.1
 // @description  为 Fallen London 页面添加快捷按钮并自动化操作
 // @author       xeoplise
 // @match        *://www.fallenlondon.com/*
@@ -28,7 +28,7 @@
     function addMainToggleButton() {
         const toggleButton = document.createElement('button');
         toggleButton.id = 'fl-helper-add-button'; // Add an ID for potential styling/selection
-        toggleButton.textContent = '添加执行脚本按钮';
+        toggleButton.textContent = 'Add Execution Button';
         toggleButton.style.position = 'fixed';
         toggleButton.style.top = '10px';
         toggleButton.style.right = '10px';
@@ -45,20 +45,70 @@
 
         toggleButton.addEventListener('click', function() {
             addScriptButtons();
-            toggleButton.textContent = '已添加/刷新';
+            toggleButton.textContent = 'Added';
             toggleButton.disabled = true;
             setTimeout(() => {
-                toggleButton.textContent = '添加执行脚本按钮';
+                toggleButton.textContent = 'Add Execution Button';
                 toggleButton.disabled = false;
             }, 2000);
         });
     }
 
+    function addExplanationBox() {
+    // Add explanation box below the main button
+        const explanationBox = document.createElement('div');
+    explanationBox.textContent = 'Note!';
+    explanationBox.style.position = 'fixed';
+    explanationBox.style.top = '100px'; // Position below the stop button
+    explanationBox.style.right = '10px';
+    explanationBox.style.zIndex = 10000;
+    explanationBox.style.padding = '8px 12px';
+    explanationBox.style.backgroundColor = '#6c757d'; // Neutral color for explanation
+    explanationBox.style.color = 'white';
+    explanationBox.style.border = 'none';
+    explanationBox.style.borderRadius = '4px';
+    explanationBox.style.cursor = 'default';
+    explanationBox.style.fontSize = '14px';
+    explanationBox.style.display = 'block'; // Show explanation box
+
+    document.body.appendChild(explanationBox);
+
+    // Explanation content div
+    const explanationContent = document.createElement('div');
+    explanationContent.textContent = "Only supports 'Go - Try again - Go - Try again - Go' simple loop";
+    explanationContent.style.position = 'fixed';
+    explanationContent.style.top = '140px'; // Position content below the explanation box
+    explanationContent.style.right = '10px';
+    explanationContent.style.zIndex = 10001; // Ensure it's on top of other elements
+    explanationContent.style.padding = '8px 12px';
+    explanationContent.style.backgroundColor = '#6c757d';
+    explanationContent.style.color = 'white';
+    explanationContent.style.border = 'none';
+    explanationContent.style.borderRadius = '4px';
+    explanationContent.style.cursor = 'default';
+    explanationContent.style.fontSize = '14px';
+    explanationContent.style.display = 'none'; // Hide by default
+
+    document.body.appendChild(explanationContent);
+
+    // Show detailed explanation on hover
+    explanationBox.addEventListener('mouseover', function() {
+        explanationContent.style.display = 'block';
+    });
+
+    explanationBox.addEventListener('mouseout', function() {
+        explanationContent.style.display = 'none';
+    });
+
+    // Show initial explanation box
+    explanationBox.style.display = 'block';
+}
+
     // Creates and adds the global stop button
     function addStopAllButton() {
         const stopButton = document.createElement('button');
         stopButton.id = 'fl-helper-stop-button'; // Add an ID
-        stopButton.textContent = '停止运行中脚本';
+        stopButton.textContent = 'Stop Running Script';
         stopButton.style.position = 'fixed';
         stopButton.style.top = '55px'; // Position below the add button
         stopButton.style.right = '10px';
@@ -86,7 +136,7 @@
                 }, 1500);
             } else {
                 console.log('全局停止按钮被点击，但当前无运行中的脚本。');
-                alert('当前没有脚本正在运行。');
+                alert('当前没有脚本正在运行。No script is currently running.');
             }
         });
     }
@@ -109,7 +159,7 @@
             var scriptButton = document.createElement('button');
             scriptButton.className = 'js-tt button button--primary button--margin button--go fl-helper-script-button'; // Add specific class
             scriptButton.type = 'button';
-            scriptButton.innerHTML = '<span>执行脚本</span>';
+            scriptButton.innerHTML = '<span>Start Execution</span>';
             scriptButton.style.backgroundColor = '#28a745'; // Green color for execute
             scriptButton.style.borderColor = '#1e7e34';
             scriptButton.style.marginRight = '5px'; // Add some space
@@ -142,14 +192,15 @@
     // --- Core Script Logic ---
     function startScript(initialButton1) { // The button element next to which "Execute Script" was clicked
         // --- User Input ---
-        var userInputClicks = prompt('请输入要循环点击的次数:', '10');
+        var userInputClicks = prompt('请输入要循环点击的次数/Please enter the number of times to click repeatedly:', '10');
         var maxClicks = parseInt(userInputClicks, 10);
-        if (isNaN(maxClicks) || maxClicks <= 0) { alert('循环次数输入无效...'); return; }
-        var userInputQuality = prompt('请输入目标质量值:', '17');
+        if (isNaN(maxClicks) || maxClicks <= 0) { alert('循环次数输入无效... Invalid cycle count entered.');
+            return; }
+        var userInputQuality = prompt('请输入目标质量值/Please enter the target quality value:', '17');
         var targetQualityValue = parseInt(userInputQuality, 10);
         // Check if the *parsed* value is valid. If user enters non-numeric, treat as invalid.
         if (isNaN(targetQualityValue)) {
-             alert('目标质量值输入无效 (请输入数字)，脚本已终止');
+            alert('目标质量值输入无效 (请输入数字)，脚本已终止。Invalid target quality value (please enter a number), script terminated.');
              console.error('目标质量值输入无效，脚本终止');
              return;
         }
@@ -172,7 +223,7 @@
             console.log(`脚本启动：将使用父元素 data-branch-id="${parentBranchId}" 查找 Button1 (选择器: "${button1Selector}")`);
         } else {
             // If no parent with data-branch-id is found, we cannot reliably target the button. Stop.
-            alert('错误：无法找到目标按钮父元素的 data-branch-id。脚本无法确定要点击哪个按钮，已终止。');
+            alert('错误：无法找到目标按钮父元素的 data-branch-id。脚本无法确定要点击哪个按钮，已终止。Error: Could not find the target button\'s parent element with data-branch-id. Script terminated.');
             console.error('Error: Could not find a parent element with data-branch-id for the initial Button1. Cannot proceed.');
             // Ensure stop button state is correct if script fails to start
             if (window.updateFlHelperStopButtonState) window.updateFlHelperStopButtonState(false);
@@ -270,12 +321,12 @@
                  clearTimeout(nextClickTimeoutId);
                  nextClickTimeoutId = setTimeout(findAndCheckQualityBeforeClickButton2, 750);
              } else if (document.body.contains(buttonToClick) && buttonToClick.disabled) {
-                 alert(`错误：尝试点击 Button1 (标识: ${logId}) 时发现其被禁用，脚本终止。`);
-                 console.error(`[Error] Button1 (${logId}) is disabled.`);
+                alert(`错误：尝试点击 Button1 (标识: ${logId}) 时发现其被禁用，脚本终止。Error: Button1 (${logId}) is disabled, script terminated.`);
+                console.error(`[Error] Button1 (${logId}) is disabled.`);
                  stopScript();
              } else {
-                  alert(`错误：尝试点击 Button1 (标识: ${logId}) 时发现其已从页面消失，脚本终止。`);
-                  console.error(`[Error] Button1 (${logId}) disappeared.`);
+                alert(`错误：尝试点击 Button1 (标识: ${logId}) 时发现其已从页面消失，脚本终止。Error: Button1 (${logId}) has disappeared from the page, script terminated.`);
+                console.error(`[Error] Button1 (${logId}) disappeared.`);
                   stopScript();
              }
          }
@@ -321,7 +372,7 @@
                     if (findButton2Attempts >= maxFindButton2Attempts) { // Timeout finding Button2
                         clearInterval(findButton2IntervalId);
                         findButton2IntervalId = null;
-                        alert('等待 Button2 (Try again) 超时，脚本终止。');
+                        alert('等待 Button2 (Try again) 超时，脚本终止。Timed out waiting for Button2 (Try again), script terminated.');
                         console.error('[Error] Timeout waiting for Button2.');
                         stopScript();
                     }
@@ -347,7 +398,7 @@
                 const elapsedTime = Date.now() - startTime;
 
                 if (elapsedTime > timeoutDuration) {
-                    alert(`等待 Button1 (标识: ${logId}) 恢复超时 (${timeoutDuration / 1000} 秒)，脚本终止。`);
+                    alert(`等待 Button1 (标识: ${logId}) 恢复超时 (${timeoutDuration / 1000} 秒)，脚本终止。Timed out waiting for Button1 (ID: ${logId}) to be ready (${timeoutDuration / 1000} seconds), script terminated.`);
                     console.error(`[Error] Timeout waiting for Button1 (${logId}).`);
                     stopScript();
                     return;
@@ -365,6 +416,7 @@
                         clickCount++;
                         if (clickCount >= maxClicks) {
                             console.log(`[Step 4] 已达到最大点击次数 (${maxClicks})，脚本完成。`);
+                            alert("执行完毕 / Finished Execution");
                             stopScript();
                         } else {
                             console.log(`[Step 4] 准备开始下一轮 (当前: ${clickCount}/${maxClicks})。`);
@@ -427,10 +479,12 @@
 
         // --- Initial State Check (Verifies initialButton1 still exists before getting parent ID) ---
         if (!initialButton1 || !document.body.contains(initialButton1)) {
-             alert('目标按钮 (Button1) 在脚本启动时未找到，脚本终止。'); console.error('Initial Button1 not found.'); stopScript(); return;
+            alert('目标按钮 (Button1) 在脚本启动时未找到，脚本终止。Target button (Button1) not found at script start, script terminated.');
+            console.error('Initial Button1 not found.'); stopScript(); return;
         }
         if (initialButton1.disabled) {
-             alert('目标按钮 (Button1) 在脚本启动时已被禁用，脚本终止。'); console.error('Initial Button1 is disabled.'); stopScript(); return;
+            alert('目标按钮 (Button1) 在脚本启动时已被禁用，脚本终止。Target button (Button1) is disabled at script start, script terminated.');
+            console.error('Initial Button1 is disabled.'); stopScript(); return;
         }
         // Note: The check for the parent ID happens *after* these initial checks, inside the Parent Identifier section.
 
@@ -442,6 +496,7 @@
     // --- Initial Execution ---
     console.log("FL Helper: Initializing (v2.0)...");
     addMainToggleButton();
+    addExplanationBox();
     addStopAllButton();
     setTimeout(() => {
         console.log("FL Helper: Setting initial stop button state.");
