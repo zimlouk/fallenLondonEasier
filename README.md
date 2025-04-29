@@ -43,4 +43,8 @@ Bug reports and suggestions are very welcome.
 
 欢迎捉虫 提点子
 
+maybe to do：
+增加分类文件夹概念、
+默认派系道具收藏
+
 After all: Thanks, Gemini
