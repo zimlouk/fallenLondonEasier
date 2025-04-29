@@ -1,0 +1,804 @@
+// ==UserScript==
+// @name         Fallen London Multi-Item Tracker (Styled Category)
+// @namespace    http://tampermonkey.net/
+// @version      3.2
+// @description  Track multiple items, shows styled category (e.g., Coveted) in tooltip. Use button reloads.
+// @author       xeoplise
+// @match        https://www.fallenlondon.com/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=fallenlondon.com
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      api.fallenlondon.com
+// @license      MIT
+// ==/UserScript==
+
+(function () {
+  "use strict";
+
+  // --- Configuration ---
+  const WAIT_TIMEOUT_MS = 10000;
+  const RETRY_INTERVAL_MS = 500;
+  const API_USE_URL = "https://api.fallenlondon.com/api/storylet/usequality";
+  const TRACKED_ITEM_IDS_KEY = "fl_tracker_tracked_ids";
+  const POSSESSIONS_ITEM_CONTAINER_SELECTOR = ".stack-content--3-of-4";
+  // List of known category/rarity words (lowercase) for identification
+  const KNOWN_CATEGORIES = [
+    "ubiquitous",
+    "commonplace",
+    "uncommon",
+    "scarce",
+    "rare",
+    "coveted",
+    "legendary",
+  ];
+  // --- Configuration End ---
+
+  // ... Constants (DISPLAY_ELEMENT_ID, CONTAINER_CLASS, etc.) identical to v3.1 ...
+  const DISPLAY_ELEMENT_ID = "item-tracker-bottom-bar-_unique_id_";
+  const CONTAINER_CLASS = "tracker-item-container";
+  const TOOLTIP_CLASS = "tracker-tooltip";
+  const VISIBLE_CLASS = "tooltip-visible";
+  const USE_BUTTON_CLASS = "tooltip-button";
+  const ADD_BUTTON_CLASS = "tracker-add-button";
+  const STORAGE_CATEGORY_SUFFIX = "category"; // New storage key suffix
+
+  let findIntervalId = null;
+  let isClickListenerSetup = false;
+
+  // --- Styling --- (Added .tooltip-category style)
+  GM_addStyle(`
+        /* ... Styles from v3.1 (Bar, Container, Tooltip, Buttons) ... */
+        #${DISPLAY_ELEMENT_ID} { position: fixed; bottom: 0; left: 0; width: 100%; font-size: 14px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; z-index: 10000; display: flex; justify-content: center; align-items: flex-end; gap: 8px; padding: 5px 15px; box-sizing: border-box; pointer-events: none; min-height: 45px; }
+        .${CONTAINER_CLASS} { position: relative; display: inline-flex; align-items: center; background-color: rgba(30, 30, 30, 0.85); padding: 4px 8px; border-radius: 4px; border: 1px solid #555; pointer-events: auto; cursor: pointer; min-width: 60px; justify-content: center; flex-shrink: 0; }
+        #${DISPLAY_ELEMENT_ID} img.tracker-icon { width: 28px; height: 28px; vertical-align: middle; border-radius: 3px; flex-shrink: 0; margin-right: 8px; }
+        #${DISPLAY_ELEMENT_ID} .tracker-quantity { color: #AEEA00; font-weight: bold; font-size: 13px; }
+        .${TOOLTIP_CLASS} { display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background-color: rgba(10, 10, 10, 0.95); color: #E0E0E0; border: 1px solid #666; border-radius: 5px; padding: 10px 12px; width: max-content; max-width: 300px; font-size: 13px; z-index: 10001; text-align: left; white-space: normal; box-shadow: 0 3px 8px rgba(0,0,0,0.5); pointer-events: auto; cursor: default; }
+        .${TOOLTIP_CLASS}.${VISIBLE_CLASS} { display: block; }
+        .${TOOLTIP_CLASS} .tooltip-name { font-weight: bold; color: #FFF; font-size: 14px; margin-bottom: 6px; display: block; }
+
+        /* NEW/MODIFIED: Category and Description Styling */
+        .tooltip-desc-line { /* Container for category + description */
+             display: block; /* Ensure it takes its own line */
+             margin-bottom: 8px;
+             line-height: 1.4;
+        }
+.tooltip-category {
+    font-weight: bold !important;
+    font-style: italic !important;
+    margin-right: 0.4em;
+    color: #DDD;
+    /* 新增文本阴影提升可读性 */
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+}
+
+.tooltip-description {
+    color: #BBB;
+    /* 确保描述文本不继承粗体 */
+    font-weight: normal;
+    font-style: normal;
+}
+
+        /* ... Rest of tooltip styles (button, status) identical ... */
+        .${TOOLTIP_CLASS} .${USE_BUTTON_CLASS} { background-color: #555; color: #FFF; border: 1px solid #777; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; display: block; margin-top: 8px; text-align: center; width: 100%; box-sizing: border-box; }
+        .${TOOLTIP_CLASS} .${USE_BUTTON_CLASS}:hover:not([disabled]) { background-color: #666; border-color: #888; }
+        .${TOOLTIP_CLASS} .${USE_BUTTON_CLASS}[disabled] { background-color: #444; color: #888; cursor: not-allowed; border-color: #555;}
+        .${TOOLTIP_CLASS} .tooltip-status { font-size: 11px; margin-top: 5px; padding: 3px; text-align: center; border-radius: 3px; display: block; min-height: 1em; }
+        .${TOOLTIP_CLASS} .tooltip-status.success { background-color: rgba(50, 120, 50, 0.7); color: #C8E6C9; }
+        .${TOOLTIP_CLASS} .tooltip-status.error { background-color: rgba(120, 50, 50, 0.7); color: #FFCDD2; }
+        #${DISPLAY_ELEMENT_ID}.loading .${CONTAINER_CLASS}, .${CONTAINER_CLASS}.loading { opacity: 0.7; cursor: wait; }
+        #${DISPLAY_ELEMENT_ID}.error .${CONTAINER_CLASS}, .${CONTAINER_CLASS}.error { border-color: #A00; }
+        /* '+' Button styles identical to v3.1 */
+        .icon[data-quality-id] { position: relative; } .${ADD_BUTTON_CLASS} {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 18px;
+    height: 18px;
+    background-color: #282520 !important;
+    color: #fff !important;
+    border: 1px solid #4d4a45 !important;
+    border-radius: 11px;
+    font-family: "Roboto Slab", Georgia, Times, serif;
+    font-size: 12px;
+    font-weight: normal;
+    line-height: 17px;
+    text-align: center;
+    cursor: pointer;
+    z-index: 5;
+    opacity: 0.9;
+    transition: opacity 0.2s, transform 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.${ADD_BUTTON_CLASS}:hover {
+    opacity: 1;
+    transform: scale(1.1);
+    background-color: #383430 !important;
+}
+
+.${ADD_BUTTON_CLASS}.selected {
+    background-color: #ffd75e !important;
+    color: #3a2e1d !important;
+    border-color: #d4b343 !important;
+    line-height: 16px;
+}
+
+    `);
+
+  // --- Helper Functions ---
+  function getTrackedItemIds() {
+    /* ... (identical to v3.1) ... */ const storedValue = GM_getValue(
+      TRACKED_ITEM_IDS_KEY,
+      "[]"
+    );
+    try {
+      const ids = JSON.parse(storedValue);
+      return Array.isArray(ids)
+        ? ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+        : [];
+    } catch (e) {
+      console.error(
+        "FL Item Tracker: Error parsing tracked IDs, returning empty list.",
+        e
+      );
+      return [];
+    }
+  }
+  function setTrackedItemIds(ids) {
+    if (!Array.isArray(ids)) return;
+    // Ensure IDs are unique numbers
+    const uniqueIds = [
+      ...new Set(ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))),
+    ];
+    GM_setValue(TRACKED_ITEM_IDS_KEY, JSON.stringify(uniqueIds));
+  }
+  function getStorageKeyPrefix(itemId) {
+    /* ... (identical to v3.1) ... */ return `fl_item_tracker_${itemId}_`;
+  }
+  function findAuthToken() {
+    /* ... (identical to v3.1) ... */ console.log(
+      "FL Item Tracker: Attempting to automatically find JWT..."
+    );
+    const jwtRegex = /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]*$/;
+    const storageAreas = [localStorage, sessionStorage];
+    for (const storage of storageAreas) {
+      try {
+        const keys = Object.keys(storage);
+        for (const key of keys) {
+          const value = storage.getItem(key);
+          if (
+            value &&
+            typeof value === "string" &&
+            value.startsWith("ey") &&
+            value.includes(".") &&
+            jwtRegex.test(value)
+          ) {
+            console.log(
+              `FL Item Tracker: Found potential JWT in ${
+                storage === localStorage ? "localStorage" : "sessionStorage"
+              } with key "${key}".`
+            );
+            return value;
+          }
+        }
+      } catch (e) {
+        console.warn(
+          `FL Item Tracker: Error accessing ${
+            storage === localStorage ? "localStorage" : "sessionStorage"
+          }`,
+          e
+        );
+      }
+    }
+    console.error(
+      "FL Item Tracker: Could not automatically find a JWT in localStorage or sessionStorage."
+    );
+    return null;
+  }
+  function showStatusMessage(tooltipElement, message, type = null) {
+    /* ... (identical to v3.1) ... */ if (!tooltipElement) return;
+    let statusDiv = tooltipElement.querySelector(".tooltip-status");
+    if (!statusDiv) {
+      statusDiv = document.createElement("div");
+      statusDiv.className = "tooltip-status";
+      const button = tooltipElement.querySelector(`.${USE_BUTTON_CLASS}`);
+      if (button) {
+        button.insertAdjacentElement("afterend", statusDiv);
+      } else {
+        tooltipElement.appendChild(statusDiv);
+      }
+    } else {
+      statusDiv.style.display = "block";
+    }
+    statusDiv.textContent = message;
+    statusDiv.className = "tooltip-status";
+    if (type === "success") {
+      statusDiv.classList.add("success");
+    } else if (type === "error") {
+      statusDiv.classList.add("error");
+    }
+  }
+
+  // --- Core Logic Functions ---
+
+  /**
+   * Parses data for a given item element, including category identification.
+   * @param {Element} itemElement The div.icon element.
+   * @returns {object|null} Object with parsed data or null.
+   */
+  function parseItemDataFromElement(itemElement) {
+    if (!itemElement) return null;
+    try {
+      const qualityId = parseInt(
+        itemElement.getAttribute("data-quality-id"),
+        10
+      );
+      const quantityElement = itemElement.querySelector("span.js-item-value");
+      const buttonDiv = itemElement.querySelector('div[role="button"]');
+      const imgElement = itemElement.querySelector("img");
+      const ariaLabelSource = buttonDiv || itemElement;
+      const ariaLabel = ariaLabelSource
+        ? ariaLabelSource.getAttribute("aria-label")
+        : "";
+      const imgSrc = imgElement ? imgElement.getAttribute("src") : "";
+
+      if (!qualityId || !quantityElement || !ariaLabel || !imgSrc) {
+        return null;
+      }
+
+      const itemQuantity = quantityElement.textContent.trim();
+      const currentIcon = imgSrc.startsWith("//") ? `https:${imgSrc}` : imgSrc;
+      const parts = ariaLabel.split(/;\s*/); // 使用正则表达式分割，处理可能的多余空格
+      const nameMatch = parts[0] ? parts[0].match(/^([^×]+?)\s*(?:×|$)/) : null; // 更灵活的名称匹配
+      const itemName = nameMatch ? nameMatch[1].trim() : `Item ID ${qualityId}`;
+
+      let itemCategory = "";
+      let itemDescription = "";
+      let isUsable = false;
+
+      // 新的分类识别逻辑
+      const categoryRegex = new RegExp(
+        `\\b(${KNOWN_CATEGORIES.join("|")})\\b`,
+        "i" // 不区分大小写
+      );
+
+      for (let i = 1; i < parts.length; i++) {
+        const part = parts[i];
+        const categoryMatch = part.match(categoryRegex);
+
+        if (categoryMatch) {
+          itemCategory = categoryMatch[0];
+          const splitIndex = part.indexOf(itemCategory) + itemCategory.length;
+          const remainingText = part.slice(splitIndex).trim();
+
+          // 处理剩余的描述文本
+          if (remainingText) {
+            itemDescription += remainingText;
+            if (i < parts.length - 1) {
+              itemDescription += "; ";
+            }
+          }
+
+          // 合并后续部分作为描述
+          itemDescription += parts.slice(i + 1).join("; ");
+          break;
+        } else {
+          itemDescription += part + (i < parts.length - 1 ? "; " : "");
+        }
+      }
+
+      // 处理使用提示
+      if (itemDescription.toLowerCase().includes("click on this item")) {
+        isUsable = true;
+        itemDescription = itemDescription.replace(/click on this item.*/i, "");
+      }
+
+      // 清理多余的标点
+      itemDescription = itemDescription.replace(/;\s*$/, "").trim();
+
+      return {
+        id: qualityId,
+        name: itemName,
+        quantity: itemQuantity,
+        icon: currentIcon,
+        category: itemCategory,
+        description: itemDescription,
+        isUsable: isUsable,
+      };
+    } catch (error) {
+      console.error(
+        "FL Item Tracker: Error parsing item data from element:",
+        error,
+        itemElement
+      );
+      return null;
+    }
+  }
+
+  /** Stores the parsed item data including category */
+  function storeItemData(itemData) {
+    if (!itemData || !itemData.id) return;
+    const prefix = getStorageKeyPrefix(itemData.id);
+    console.log(`FL Item Tracker: Storing data for ID ${itemData.id}`);
+    GM_setValue(prefix + "name", itemData.name);
+    GM_setValue(prefix + "quantity", itemData.quantity);
+    GM_setValue(prefix + "icon", itemData.icon);
+    GM_setValue(prefix + STORAGE_CATEGORY_SUFFIX, itemData.category || ""); // Store category
+    GM_setValue(prefix + "description", itemData.description || "");
+    GM_setValue(prefix + "is_usable", itemData.isUsable);
+  }
+
+  function findAndStoreTrackedItemsData() {
+    /* ... (identical to v3.1) ... */
+    const trackedIds = getTrackedItemIds();
+    if (trackedIds.length === 0) {
+      console.log(
+        "FL Item Tracker: No items tracked, skipping data find/store."
+      );
+      return;
+    }
+    console.log(
+      `FL Item Tracker: Starting search for ${
+        trackedIds.length
+      } tracked items (Timeout: ${
+        WAIT_TIMEOUT_MS / 1000
+      }s). IDs: [${trackedIds.join(", ")}]`
+    );
+    trackedIds.forEach((id) => {
+      const container = document.querySelector(
+        `#${DISPLAY_ELEMENT_ID} .${CONTAINER_CLASS}[data-item-id="${id}"]`
+      );
+      if (container) container.classList.add("loading", "error");
+    });
+    if (findIntervalId) clearInterval(findIntervalId);
+    const startTime = Date.now();
+    const itemSelector = trackedIds
+      .map((id) => `div.icon[data-quality-id="${id}"]`)
+      .join(", ");
+    findIntervalId = setInterval(() => {
+      const foundElements = document.querySelectorAll(itemSelector);
+      const foundIds = new Set();
+      if (
+        foundElements.length > 0 ||
+        Date.now() - startTime >= WAIT_TIMEOUT_MS
+      ) {
+        if (foundElements.length > 0) {
+          console.log(
+            `FL Item Tracker: Found ${foundElements.length} tracked item elements.`
+          );
+          foundElements.forEach((itemElement) => {
+            const itemData = parseItemDataFromElement(itemElement);
+            if (itemData) {
+              storeItemData(itemData);
+              foundIds.add(itemData.id);
+              const container = document.querySelector(
+                `#${DISPLAY_ELEMENT_ID} .${CONTAINER_CLASS}[data-item-id="${itemData.id}"]`
+              );
+              if (container) container.classList.remove("loading", "error");
+            }
+          });
+        }
+        const missingIds = trackedIds.filter((id) => !foundIds.has(id));
+        if (missingIds.length > 0) {
+          console.log(
+            `FL Item Tracker: Tracked items not found (assuming Qty 0 or timed out): [${missingIds.join(
+              ", "
+            )}]`
+          );
+          missingIds.forEach((missingId) => {
+            const prefix = getStorageKeyPrefix(missingId);
+            const previouslyStoredName = GM_getValue(prefix + "name", null);
+            if (
+              previouslyStoredName &&
+              !previouslyStoredName.startsWith("Item ID")
+            ) {
+              console.log(
+                `FL Item Tracker: Setting quantity to 0 for missing item "${previouslyStoredName}" (ID ${missingId}).`
+              );
+              GM_setValue(prefix + "quantity", "0");
+            } else {
+              console.log(
+                `FL Item Tracker: Missing item ${missingId} was not previously tracked or only had fallback name.`
+              );
+            }
+            if (Date.now() - startTime >= WAIT_TIMEOUT_MS) {
+              const container = document.querySelector(
+                `#${DISPLAY_ELEMENT_ID} .${CONTAINER_CLASS}[data-item-id="${missingId}"]`
+              );
+              if (container) container.classList.remove("loading");
+            }
+          });
+        }
+        clearInterval(findIntervalId);
+        findIntervalId = null;
+        console.log(
+          "FL Item Tracker: Finished processing/timeout for tracked items."
+        );
+        displayTrackedItems();
+      }
+    }, RETRY_INTERVAL_MS);
+  }
+  function toggleTrackedItem(itemId) {
+    /* ... (identical to v3.1) ... */ let trackedIds = getTrackedItemIds();
+    const isCurrentlyTracked = trackedIds.includes(itemId);
+    if (isCurrentlyTracked) {
+      console.log(`FL Item Tracker: Untracking item ID ${itemId}`);
+      trackedIds = trackedIds.filter((id) => id !== itemId);
+    } else {
+      console.log(`FL Item Tracker: Tracking item ID ${itemId}`);
+      trackedIds.push(itemId);
+      const itemElement = document.querySelector(
+        `${POSSESSIONS_ITEM_CONTAINER_SELECTOR} div.icon[data-quality-id="${itemId}"]`
+      );
+      if (itemElement) {
+        const itemData = parseItemDataFromElement(itemElement);
+        if (itemData) {
+          storeItemData(itemData);
+        } else {
+          console.warn(
+            `FL Item Tracker: Failed to parse data immediately for newly tracked item ${itemId}`
+          );
+          GM_setValue(getStorageKeyPrefix(itemId) + "quantity", "?");
+        }
+      } else {
+        console.warn(
+          `FL Item Tracker: Could not find element immediately for newly tracked item ${itemId}.`
+        );
+        GM_setValue(getStorageKeyPrefix(itemId) + "quantity", "?");
+      }
+    }
+    setTrackedItemIds(trackedIds);
+    updateAddButtonStates();
+    displayTrackedItems();
+  }
+  function updateAddButtonStates() {
+    /* ... (identical to v3.1) ... */ const trackedIds = getTrackedItemIds();
+    const addButtons = document.querySelectorAll(`.${ADD_BUTTON_CLASS}`);
+    addButtons.forEach((button) => {
+      const buttonItemId = parseInt(button.dataset.itemId || "0", 10);
+      if (buttonItemId && trackedIds.includes(buttonItemId)) {
+        button.classList.add("selected");
+        button.textContent = "✓";
+        button.title = "Stop tracking this item";
+      } else {
+        button.classList.remove("selected");
+        button.textContent = "+";
+        button.title = "Track this item";
+      }
+    });
+  }
+  function enhancePossessionsPage() {
+    /* ... (identical to v3.1, calls toggleTrackedItem) ... */ console.log(
+      "FL Item Tracker: Enhancing possessions page..."
+    );
+    const itemContainer = document.querySelector(
+      POSSESSIONS_ITEM_CONTAINER_SELECTOR
+    );
+    if (!itemContainer) {
+      console.warn("FL Item Tracker: Item container not found.");
+      return;
+    }
+    const itemIcons = itemContainer.querySelectorAll(".icon[data-quality-id]");
+    console.log(`FL Item Tracker: Found ${itemIcons.length} item icons.`);
+    itemIcons.forEach((iconElement) => {
+      if (iconElement.querySelector(`.${ADD_BUTTON_CLASS}`)) {
+        return;
+      }
+      const itemId = parseInt(iconElement.getAttribute("data-quality-id"), 10);
+      if (!itemId) return;
+      const addButton = document.createElement("button");
+      addButton.className = ADD_BUTTON_CLASS;
+      addButton.textContent = "+";
+      addButton.title = "Track this item";
+      addButton.dataset.itemId = itemId;
+      addButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleTrackedItem(itemId);
+      });
+      iconElement.appendChild(addButton);
+    });
+    updateAddButtonStates();
+  }
+  function useTrackedItem(itemId, buttonElement) {
+    /* ... (identical to v3.1) ... */ if (!itemId) {
+      console.error("FL Item Tracker: useTrackedItem called without itemId.");
+      return;
+    }
+    console.log(`FL Item Tracker: 'Use' button clicked for item ID ${itemId}.`);
+    const token = findAuthToken();
+    if (!token) {
+      showStatusMessage(
+        buttonElement?.closest(`.${TOOLTIP_CLASS}`),
+        "Error: Auto-detection failed to find Auth Token.",
+        "error"
+      );
+      return;
+    }
+    const requestBody = JSON.stringify({ qualityId: itemId });
+    const requestHeaders = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, */*",
+      "X-Requested-With": "XMLHttpRequest",
+    };
+    console.log("FL Item Tracker: Sending Use request...");
+    if (buttonElement) buttonElement.disabled = true;
+    showStatusMessage(
+      buttonElement?.closest(`.${TOOLTIP_CLASS}`),
+      "Using...",
+      null
+    );
+    const tooltip = buttonElement?.closest(`.${TOOLTIP_CLASS}`);
+    if (tooltip) tooltip.classList.remove(VISIBLE_CLASS);
+    GM_xmlhttpRequest({
+      method: "POST",
+      url: API_USE_URL,
+      headers: requestHeaders,
+      data: requestBody,
+      responseType: "json",
+      timeout: 15000,
+      onload: function (response) {
+        console.log("FL Item Tracker: API Response Status:", response.status);
+        if (response.status >= 200 && response.status < 300) {
+          console.log(
+            "FL Item Tracker: API call successful. Reloading page..."
+          );
+          setTimeout(() => {
+            window.location.reload();
+          }, 100);
+        } else {
+          const errorMessage =
+            response.response?.message ||
+            response.statusText ||
+            `HTTP ${response.status}`;
+          console.error(
+            "FL Item Tracker: API Error - ",
+            errorMessage,
+            response.response
+          );
+          if (tooltip && !tooltip.classList.contains(VISIBLE_CLASS)) {
+            tooltip.classList.add(VISIBLE_CLASS);
+          }
+          showStatusMessage(
+            buttonElement?.closest(`.${TOOLTIP_CLASS}`),
+            `Error: ${errorMessage}`,
+            "error"
+          );
+          if (buttonElement) buttonElement.disabled = false;
+        }
+      },
+      onerror: function (response) {
+        console.error(
+          "FL Item Tracker: Network Error - ",
+          response.statusText,
+          response.error
+        );
+        if (tooltip && !tooltip.classList.contains(VISIBLE_CLASS)) {
+          tooltip.classList.add(VISIBLE_CLASS);
+        }
+        showStatusMessage(
+          buttonElement?.closest(`.${TOOLTIP_CLASS}`),
+          `Network Error: ${response.error || "Failed to send"}`,
+          "error"
+        );
+        if (buttonElement) buttonElement.disabled = false;
+      },
+      ontimeout: function () {
+        console.error("FL Item Tracker: Request timed out.");
+        if (tooltip && !tooltip.classList.contains(VISIBLE_CLASS)) {
+          tooltip.classList.add(VISIBLE_CLASS);
+        }
+        showStatusMessage(
+          buttonElement?.closest(`.${TOOLTIP_CLASS}`),
+          "Error: Request Timed Out",
+          "error"
+        );
+        if (buttonElement) buttonElement.disabled = false;
+      },
+    });
+  }
+
+  /** Creates/updates the bottom bar displaying ALL tracked items with styled category. */
+  function displayTrackedItems() {
+    let displayBar = document.getElementById(DISPLAY_ELEMENT_ID);
+    if (!displayBar) {
+      /* ... create bar ... */ console.log(
+        "FL Item Tracker: Creating bottom display bar."
+      );
+      displayBar = document.createElement("div");
+      displayBar.id = DISPLAY_ELEMENT_ID;
+      document.body.appendChild(displayBar);
+    }
+
+    // Setup listeners ONCE (identical logic to v3.1)
+    if (!isClickListenerSetup) {
+      /* ... setup delegated listeners on displayBar ... */ console.log(
+        "FL Item Tracker: Setting up delegated click listeners for bar."
+      );
+      displayBar.addEventListener("click", (event) => {
+        const target = event.target;
+        const container = target.closest(`.${CONTAINER_CLASS}`);
+        if (!container) return;
+        const itemId = parseInt(container.dataset.itemId || "0", 10);
+        if (!itemId) return;
+        const tooltip = container.querySelector(`.${TOOLTIP_CLASS}`);
+        if (
+          target.matches(`.${USE_BUTTON_CLASS}`) ||
+          target.closest(`.${USE_BUTTON_CLASS}`)
+        ) {
+          console.log(`'Use' button clicked for item ${itemId}`);
+          event.stopPropagation();
+          useTrackedItem(itemId, target.closest(`.${USE_BUTTON_CLASS}`));
+        } else if (container.contains(target) && !tooltip?.contains(target)) {
+          document
+            .querySelectorAll(
+              `#${DISPLAY_ELEMENT_ID} .${TOOLTIP_CLASS}.${VISIBLE_CLASS}`
+            )
+            .forEach((visibleTooltip) => {
+              if (visibleTooltip !== tooltip) {
+                visibleTooltip.classList.remove(VISIBLE_CLASS);
+                const status = visibleTooltip.querySelector(".tooltip-status");
+                if (status) status.textContent = "";
+              }
+            });
+          if (tooltip) {
+            tooltip.classList.toggle(VISIBLE_CLASS);
+            const status = tooltip.querySelector(".tooltip-status");
+            if (status) status.textContent = "";
+          }
+          event.stopPropagation();
+        } else if (tooltip && tooltip.contains(target)) {
+          event.stopPropagation();
+        }
+      });
+      document.addEventListener(
+        "click",
+        (event) => {
+          const currentlyVisibleTooltips = document.querySelectorAll(
+            `#${DISPLAY_ELEMENT_ID} .${TOOLTIP_CLASS}.${VISIBLE_CLASS}`
+          );
+          if (
+            currentlyVisibleTooltips.length > 0 &&
+            !displayBar.contains(event.target)
+          ) {
+            console.log("Click outside detected, hiding all tooltips.");
+            currentlyVisibleTooltips.forEach((tooltip) => {
+              tooltip.classList.remove(VISIBLE_CLASS);
+              const status = tooltip.querySelector(".tooltip-status");
+              if (status) status.textContent = "";
+            });
+          }
+        },
+        true
+      );
+      isClickListenerSetup = true;
+    }
+
+    const trackedIds = getTrackedItemIds();
+    displayBar.innerHTML = ""; // Clear previous items
+
+    if (trackedIds.length === 0) {
+      /* ... show placeholder ... */ displayBar.innerHTML = `<span style="color: #888; font-style: italic; pointer-events: none;">Click '+' on an item in Possessions to track it.</span>`;
+      return;
+    }
+
+    // --- Build HTML for each tracked item ---
+    trackedIds.forEach((itemId) => {
+      const prefix = getStorageKeyPrefix(itemId);
+      const itemName = GM_getValue(prefix + "name", `Item ${itemId}`);
+      const itemQuantity = GM_getValue(prefix + "quantity", "?");
+      const itemIcon = GM_getValue(prefix + "icon", "");
+      const itemCategory = GM_getValue(prefix + STORAGE_CATEGORY_SUFFIX, ""); // Get category
+      const itemDescription = GM_getValue(
+        prefix + "description",
+        "No description available."
+      );
+      const isUsable = GM_getValue(prefix + "is_usable", false);
+      const currentStoredQuantity = parseInt(itemQuantity, 10) || 0;
+
+      const container = document.createElement("div");
+      container.className = CONTAINER_CLASS;
+      container.dataset.itemId = itemId;
+
+      // Build Tooltip HTML with Category
+      let tooltipHTML = `<div class="${TOOLTIP_CLASS}">`;
+      tooltipHTML += `<span class="tooltip-name">${itemName}</span>`;
+      // --- Category + Description Line ---
+      tooltipHTML += `<span class="tooltip-desc-line">`;
+      if (itemCategory) {
+        // Only add category span if it exists
+        tooltipHTML += `<span class="tooltip-category">${itemCategory}</span>`;
+      }
+      tooltipHTML += `<span class="tooltip-description">${itemDescription}</span>`;
+      tooltipHTML += `</span>`; // End desc-line
+      // --- End Category + Description ---
+      if (isUsable) {
+        /* ... add Use button ... */ const disabled =
+          currentStoredQuantity <= 0 ? "disabled" : "";
+        const title =
+          currentStoredQuantity <= 0 ? "Cannot use: Qty 0" : `Use ${itemName}`;
+        tooltipHTML += `<button class="${USE_BUTTON_CLASS}" ${disabled} title="${title}">Use</button>`;
+        tooltipHTML += `<div class="tooltip-status" style="display: none;"></div>`;
+      }
+      tooltipHTML += `</div>`; // End tooltip
+
+      // Build Visible Part HTML (icon + quantity)
+      let visibleHTML = "";
+      /* ... (identical) ... */ if (itemIcon) {
+        visibleHTML += `<img src="${itemIcon}" alt="Icon" class="tracker-icon" title="">`;
+      } else {
+        visibleHTML += `<span class="tracker-icon placeholder" style="/* placeholder */">?</span>`;
+      }
+      visibleHTML += `<span class="tracker-quantity">${itemQuantity}</span>`;
+
+      container.innerHTML = visibleHTML + tooltipHTML;
+      displayBar.appendChild(container);
+
+      if (!findIntervalId) {
+        container.classList.remove("loading", "error");
+      }
+    });
+  }
+
+  // --- SPA Navigation & Main Execution ---
+  function handlePathChange() {
+    /* ... (identical to v3.1) ... */ const currentPath =
+      window.location.pathname;
+    console.log("FL Item Tracker: Path changed to:", currentPath);
+    if (currentPath.includes("/possessions")) {
+      console.log("FL Item Tracker: /possessions detected.");
+      setTimeout(enhancePossessionsPage, 200);
+      setTimeout(findAndStoreTrackedItemsData, 350);
+    } else {
+      if (findIntervalId) {
+        console.log(
+          "FL Item Tracker: Navigated away from /possessions, stopping finder."
+        );
+        clearInterval(findIntervalId);
+        findIntervalId = null;
+        document
+          .querySelectorAll(
+            `#${DISPLAY_ELEMENT_ID} .${CONTAINER_CLASS}.loading`
+          )
+          .forEach((c) => c.classList.remove("loading"));
+      }
+    }
+  }
+  function setupSpaNavigationListener() {
+    /* ... (identical to v3.1) ... */ const originalPushState =
+      history.pushState;
+    const originalReplaceState = history.replaceState;
+    history.pushState = function () {
+      const result = originalPushState.apply(this, arguments);
+      console.log("FL Item Tracker: pushState detected.");
+      handlePathChange();
+      return result;
+    };
+    history.replaceState = function () {
+      const result = originalReplaceState.apply(this, arguments);
+      console.log("FL Item Tracker: replaceState detected.");
+      handlePathChange();
+      return result;
+    };
+    window.addEventListener("popstate", () => {
+      console.log("FL Item Tracker: popstate detected.");
+      handlePathChange();
+    });
+    console.log("FL Item Tracker: SPA navigation listeners setup.");
+  }
+
+  // --- Run ---
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", displayTrackedItems);
+  } else {
+    displayTrackedItems();
+  }
+  setupSpaNavigationListener();
+  setTimeout(handlePathChange, 0);
+})();
