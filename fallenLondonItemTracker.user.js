@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Fallen London Item Tracker++
+// @name         Fallen London Item Tracke
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      2.0
 // @description  Track multiple Fallen London items with target goals, shows styled category in tooltip. Updates via API intercept & /possessions page.
 // @author       xeoplise (enhanced by AI)
 // @match        https://www.fallenlondon.com/*
