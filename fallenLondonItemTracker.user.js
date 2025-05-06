@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fallen London Item Tracker
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      2.4
 // @description  Track multiple Fallen London items with target goals, shows styled category in tooltip. Updates via API intercept & /possessions page.
 // @author       xeoplise (enhanced by AI)
 // @match        https://www.fallenlondon.com/*
@@ -30,7 +30,6 @@
 
   // --- Selectors & Keys ---
   const API_USE_URL = "https://api.fallenlondon.com/api/storylet/usequality";
-  const API_INTERCEPT_URL_PATTERN = /\/api\/storylet\/choosebranch$/; // URL pattern to intercept for updates
   const DISPLAY_ELEMENT_ID = "fl-item-tracker-sidebar"; // ID for the tracker sidebar
   const CONTAINER_CLASS = "fl-tracker-item-container"; // Class for individual item containers in sidebar
   const TRACKED_ITEM_IDS_KEY = "fl_tracker_tracked_ids_v4";
@@ -43,6 +42,14 @@
   const STORAGE_KEY_PREFIX = "fl_tracker_v4_item_"; // Prefix for storing individual item data
   const STORAGE_SUFFIX_TARGET = "target"; // Suffix for storing item target value
   const STORAGE_SUFFIX_CATEGORY = "category"; // Suffix for storing item category
+  const API_CHOOSEBRANCH_PATTERN = /\/api\/storylet\/choosebranch$/;
+  const API_SELL_PATTERN = /\/api\/exchange\/sell$/;
+  const API_BUY_PATTERN = /\/api\/exchange\/buy$/; // 新增：购买 API 模式
+  const INTERCEPT_PATTERNS = [
+    API_CHOOSEBRANCH_PATTERN,
+    API_SELL_PATTERN,
+    API_BUY_PATTERN,
+  ]; // 需要拦截的 URL 模式数组
 
   // List of known category/rarity words (lowercase) for identification
   const KNOWN_CATEGORIES = [
@@ -661,88 +668,97 @@
       const target = event.target;
       const container = target.closest(`.${CONTAINER_CLASS}`); // Check clicks within item containers first
 
-      if (container) { // Click was inside an item container or its tooltip
-          const itemId = parseInt(container.dataset.itemId || "0", 10);
-          const tooltip = container.querySelector(`.${TOOLTIP_CLASS}`);
-          if (!itemId || !tooltip) return;
+      if (container) {
+        // Click was inside an item container or its tooltip
+        const itemId = parseInt(container.dataset.itemId || "0", 10);
+        const tooltip = container.querySelector(`.${TOOLTIP_CLASS}`);
+        if (!itemId || !tooltip) return;
 
-          // Handle 'Use' button click
-          const useButton = target.closest(`.${USE_BUTTON_CLASS}`);
-          if (useButton) {
-              event.stopPropagation();
-              useTrackedItem(itemId, useButton);
-              return;
-          }
-
-          // Handle Untrack button click
-          const untrackButton = target.closest('.fl-tracker-untrack-btn');
-          if (untrackButton) {
-              event.preventDefault();
-              event.stopPropagation();
-              // console.log(`FL Tracker: Untrack button clicked for item ${itemId}`); // Removed log
-              untrackItem(itemId);
-              return;
-          }
-
-          // Handle click inside tooltip content (allow interaction)
-          if (tooltip.contains(target)) {
-              event.stopPropagation();
-              return;
-          }
-
-          // Handle click on container itself (toggle tooltip)
+        // Handle 'Use' button click
+        const useButton = target.closest(`.${USE_BUTTON_CLASS}`);
+        if (useButton) {
           event.stopPropagation();
-          // console.log(`FL Tracker: Toggling tooltip for item ${itemId}`); // Removed log
-          const isCurrentlyVisible = tooltip.classList.contains(VISIBLE_CLASS);
+          useTrackedItem(itemId, useButton);
+          return;
+        }
 
-          // Hide other tooltips
-          document.querySelectorAll(`#${DISPLAY_ELEMENT_ID} .${TOOLTIP_CLASS}.${VISIBLE_CLASS}`)
-              .forEach(visibleTooltip => {
-                  if (visibleTooltip !== tooltip) {
-                      visibleTooltip.classList.remove(VISIBLE_CLASS);
-                      showStatusMessage(visibleTooltip, "", null);
-                  }
-              });
+        // Handle Untrack button click
+        const untrackButton = target.closest(".fl-tracker-untrack-btn");
+        if (untrackButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          // console.log(`FL Tracker: Untrack button clicked for item ${itemId}`); // Removed log
+          untrackItem(itemId);
+          return;
+        }
 
-          // Toggle current tooltip
-          if (!isCurrentlyVisible) {
-              tooltip.classList.add(VISIBLE_CLASS);
-              showStatusMessage(tooltip, "", null);
-          } else {
-              tooltip.classList.remove(VISIBLE_CLASS);
-          }
-          return; // Handled
+        // Handle click inside tooltip content (allow interaction)
+        if (tooltip.contains(target)) {
+          event.stopPropagation();
+          return;
+        }
+
+        // Handle click on container itself (toggle tooltip)
+        event.stopPropagation();
+        // console.log(`FL Tracker: Toggling tooltip for item ${itemId}`); // Removed log
+        const isCurrentlyVisible = tooltip.classList.contains(VISIBLE_CLASS);
+
+        // Hide other tooltips
+        document
+          .querySelectorAll(
+            `#${DISPLAY_ELEMENT_ID} .${TOOLTIP_CLASS}.${VISIBLE_CLASS}`
+          )
+          .forEach((visibleTooltip) => {
+            if (visibleTooltip !== tooltip) {
+              visibleTooltip.classList.remove(VISIBLE_CLASS);
+              showStatusMessage(visibleTooltip, "", null);
+            }
+          });
+
+        // Toggle current tooltip
+        if (!isCurrentlyVisible) {
+          tooltip.classList.add(VISIBLE_CLASS);
+          showStatusMessage(tooltip, "", null);
+        } else {
+          tooltip.classList.remove(VISIBLE_CLASS);
+        }
+        return; // Handled
       }
 
       // Handle click on the arrow toggle itself (outside any item container)
-      const arrowButton = target.closest('.fl-tracker-arrow');
+      const arrowButton = target.closest(".fl-tracker-arrow");
       if (arrowButton) {
-          // The arrow's own listener handles the toggle class/symbol
-          // We might not need to do anything extra here unless saving state
-          // console.log("FL Tracker: Arrow toggle clicked."); // Removed log
-          // Example: Save state
-          // const isCollapsed = displayBar.classList.contains("fl-tracker-collapsed");
-          // GM_setValue("fl_tracker_collapsed", isCollapsed);
+        // The arrow's own listener handles the toggle class/symbol
+        // We might not need to do anything extra here unless saving state
+        // console.log("FL Tracker: Arrow toggle clicked."); // Removed log
+        // Example: Save state
+        // const isCollapsed = displayBar.classList.contains("fl-tracker-collapsed");
+        // GM_setValue("fl_tracker_collapsed", isCollapsed);
       }
     });
     // --- END OF SINGLE CORRECTED LISTENER ---
 
-
     // Listener on the document to close tooltips when clicking outside
-    document.addEventListener("click", (event) => {
+    document.addEventListener(
+      "click",
+      (event) => {
         const displayBarElement = document.getElementById(DISPLAY_ELEMENT_ID);
         if (!displayBarElement) return;
-        const visibleTooltip = displayBarElement.querySelector(`.${TOOLTIP_CLASS}.${VISIBLE_CLASS}`);
+        const visibleTooltip = displayBarElement.querySelector(
+          `.${TOOLTIP_CLASS}.${VISIBLE_CLASS}`
+        );
         if (!visibleTooltip) return;
 
         // Check if click was inside the sidebar OR the visible tooltip
         const clickedInsideSidebar = displayBarElement.contains(event.target);
-        const clickedInsideVisibleTooltip = visibleTooltip.contains(event.target);
+        const clickedInsideVisibleTooltip = visibleTooltip.contains(
+          event.target
+        );
 
         if (!clickedInsideSidebar && !clickedInsideVisibleTooltip) {
-            // console.log("FL Tracker: Click outside sidebar/tooltip, hiding tooltip."); // Removed log
-            visibleTooltip.classList.remove(VISIBLE_CLASS);
-            showStatusMessage(visibleTooltip, "", null);
+          // console.log("FL Tracker: Click outside sidebar/tooltip, hiding tooltip."); // Removed log
+          visibleTooltip.classList.remove(VISIBLE_CLASS);
+          showStatusMessage(visibleTooltip, "", null);
         }
       },
       true
@@ -807,53 +823,57 @@
 
     // --- Setup Sidebar Structure if it doesn't exist ---
     if (!displayBar) {
-        console.log("FL Tracker: Creating sidebar display element.");
-        displayBar = document.createElement("div");
-        displayBar.id = DISPLAY_ELEMENT_ID;
+      console.log("FL Tracker: Creating sidebar display element.");
+      displayBar = document.createElement("div");
+      displayBar.id = DISPLAY_ELEMENT_ID;
 
-        // CREATE arrow and content elements FIRST
-        arrow = document.createElement("div");
-        arrow.className = "fl-tracker-arrow";
-        arrow.title = "Toggle Tracker Sidebar";
-        arrow.innerHTML = '▶'; // Default to collapsed symbol
+      // CREATE arrow and content elements FIRST
+      arrow = document.createElement("div");
+      arrow.className = "fl-tracker-arrow";
+      arrow.title = "Toggle Tracker Sidebar";
+      arrow.innerHTML = "▶"; // Default to collapsed symbol
 
-        content = document.createElement("div");
-        content.className = "fl-tracker-content";
+      content = document.createElement("div");
+      content.className = "fl-tracker-content";
 
-        // APPEND them to the displayBar in the correct order
-        displayBar.appendChild(arrow);
-        displayBar.appendChild(content);
-        document.body.appendChild(displayBar); // Add the completed bar to the body
+      // APPEND them to the displayBar in the correct order
+      displayBar.appendChild(arrow);
+      displayBar.appendChild(content);
+      document.body.appendChild(displayBar); // Add the completed bar to the body
 
-        // ADD listener to the newly created arrow
-        arrow.addEventListener("click", function(e) {
-            e.stopPropagation();
-            const isCollapsing = !displayBar.classList.contains("fl-tracker-collapsed");
-            displayBar.classList.toggle("fl-tracker-collapsed", isCollapsing);
-            arrow.innerHTML = isCollapsing ? '▶' : '◀';
-            // Optional: Save state
-            // GM_setValue("fl_tracker_collapsed", isCollapsing);
-        });
+      // ADD listener to the newly created arrow
+      arrow.addEventListener("click", function (e) {
+        e.stopPropagation();
+        const isCollapsing = !displayBar.classList.contains(
+          "fl-tracker-collapsed"
+        );
+        displayBar.classList.toggle("fl-tracker-collapsed", isCollapsing);
+        arrow.innerHTML = isCollapsing ? "▶" : "◀";
+        // Optional: Save state
+        // GM_setValue("fl_tracker_collapsed", isCollapsing);
+      });
 
-        // SET initial collapsed state
-        displayBar.classList.add("fl-tracker-collapsed"); // Start collapsed
-        arrow.innerHTML = '▶'; // Set initial icon for collapsed state
+      // SET initial collapsed state
+      displayBar.classList.add("fl-tracker-collapsed"); // Start collapsed
+      arrow.innerHTML = "▶"; // Set initial icon for collapsed state
 
-        setupSidebarListeners(displayBar); // Setup listeners for the whole sidebar ONLY when bar created
+      setupSidebarListeners(displayBar); // Setup listeners for the whole sidebar ONLY when bar created
     } else {
-        // Sidebar already exists, find existing elements
-        arrow = displayBar.querySelector('.fl-tracker-arrow');
-        content = displayBar.querySelector('.fl-tracker-content');
-        // Ensure arrow icon is correct on reload
-        if (arrow) {
-             arrow.innerHTML = displayBar.classList.contains("fl-tracker-collapsed") ? '▶' : '◀';
-        }
+      // Sidebar already exists, find existing elements
+      arrow = displayBar.querySelector(".fl-tracker-arrow");
+      content = displayBar.querySelector(".fl-tracker-content");
+      // Ensure arrow icon is correct on reload
+      if (arrow) {
+        arrow.innerHTML = displayBar.classList.contains("fl-tracker-collapsed")
+          ? "▶"
+          : "◀";
+      }
     }
 
     // Ensure content element is valid before proceeding
     if (!content) {
-        console.error("FL Tracker: Failed to find/create content container!");
-        return; // Stop if content div is missing
+      console.error("FL Tracker: Failed to find/create content container!");
+      return; // Stop if content div is missing
     }
 
     // --- Clear and Populate Content Area ---
@@ -862,76 +882,90 @@
     const trackedIds = getTrackedItemIds();
 
     if (trackedIds.length === 0) {
-        // --- ADD PLACEHOLDER ---
-        let placeholder = document.createElement('span');
-        placeholder.className = 'fl-tracker-placeholder'; // Use the CSS class
-        placeholder.textContent = "Click '+' on an item in Possessions to track it.";
-        content.appendChild(placeholder);
-        // --- END PLACEHOLDER ---
+      // --- ADD PLACEHOLDER ---
+      let placeholder = document.createElement("span");
+      placeholder.className = "fl-tracker-placeholder"; // Use the CSS class
+      placeholder.textContent =
+        "Click '+' on an item in Possessions to track it.";
+      content.appendChild(placeholder);
+      // --- END PLACEHOLDER ---
     } else {
-        // --- ADD TRACKED ITEMS ---
-        const containers = []; // Array to hold generated containers for sorting
-        trackedIds.forEach((itemId) => {
-            const prefix = getStorageKeyPrefix(itemId);
-            const item = { // Create an item object for clarity
-                id: itemId,
-                name: GM_getValue(prefix + "name", `Item ${itemId}`),
-                quantity: GM_getValue(prefix + "quantity", "?"),
-                icon: GM_getValue(prefix + "icon", ""),
-                category: GM_getValue(prefix + STORAGE_SUFFIX_CATEGORY, ""),
-                description: GM_getValue(prefix + "description", "No description available."),
-                isUsable: GM_getValue(prefix + "is_usable", false),
-                target: getItemTarget(itemId),
-            };
+      // --- ADD TRACKED ITEMS ---
+      const containers = []; // Array to hold generated containers for sorting
+      trackedIds.forEach((itemId) => {
+        const prefix = getStorageKeyPrefix(itemId);
+        const item = {
+          // Create an item object for clarity
+          id: itemId,
+          name: GM_getValue(prefix + "name", `Item ${itemId}`),
+          quantity: GM_getValue(prefix + "quantity", "?"),
+          icon: GM_getValue(prefix + "icon", ""),
+          category: GM_getValue(prefix + STORAGE_SUFFIX_CATEGORY, ""),
+          description: GM_getValue(
+            prefix + "description",
+            "No description available."
+          ),
+          isUsable: GM_getValue(prefix + "is_usable", false),
+          target: getItemTarget(itemId),
+        };
 
-            const container = document.createElement("div");
-            container.className = CONTAINER_CLASS; // Use the correct CONTAINER_CLASS for items
-            container.dataset.itemId = itemId;
+        const container = document.createElement("div");
+        container.className = CONTAINER_CLASS; // Use the correct CONTAINER_CLASS for items
+        container.dataset.itemId = itemId;
 
-            // Build Tooltip HTML
-            let tooltipHTML = `<div class="${TOOLTIP_CLASS}">`;
-            tooltipHTML += `<div class="tooltip-header">`;
-            tooltipHTML +=    `<span class="tooltip-name">${item.name}</span>`;
-            tooltipHTML +=    `<button class="fl-tracker-untrack-btn" data-item-id="${item.id}" title="Untrack this item">×</button>`;
-            tooltipHTML += `</div>`;
-            tooltipHTML += `<span class="tooltip-desc-line">`;
-            if (item.category) tooltipHTML += `<span class="tooltip-category">${item.category}</span>`;
-            tooltipHTML += `<span class="tooltip-description">${item.description}</span>`;
-            tooltipHTML += `</span>`;
-            if (item.isUsable) {
-                tooltipHTML += `<button class="${USE_BUTTON_CLASS}" data-item-id="${item.id}" title="Use ${item.name}">Use</button>`;
-                tooltipHTML += `<div class="tooltip-status" style="display: none;"></div>`;
-            }
-            tooltipHTML += `</div>`; // End tooltip
+        // Build Tooltip HTML
+        let tooltipHTML = `<div class="${TOOLTIP_CLASS}">`;
+        tooltipHTML += `<div class="tooltip-header">`;
+        tooltipHTML += `<span class="tooltip-name">${item.name}</span>`;
+        tooltipHTML += `<button class="fl-tracker-untrack-btn" data-item-id="${item.id}" title="Untrack this item">×</button>`;
+        tooltipHTML += `</div>`;
+        tooltipHTML += `<span class="tooltip-desc-line">`;
+        if (item.category)
+          tooltipHTML += `<span class="tooltip-category">${item.category}</span>`;
+        tooltipHTML += `<span class="tooltip-description">${item.description}</span>`;
+        tooltipHTML += `</span>`;
+        if (item.isUsable) {
+          tooltipHTML += `<button class="${USE_BUTTON_CLASS}" data-item-id="${item.id}" title="Use ${item.name}">Use</button>`;
+          tooltipHTML += `<div class="tooltip-status" style="display: none;"></div>`;
+        }
+        tooltipHTML += `</div>`; // End tooltip
 
-            // Visible Part HTML
-            let visibleHTML = item.icon
-                ? `<img src="${item.icon}" alt="Icon" class="tracker-icon" loading="lazy">` // Use .tracker-icon class
-                : `<span class="tracker-icon placeholder">?</span>`; // Use .tracker-icon class
-            const formattedQuantity = item.target !== null ? `${item.quantity} / ${item.target}` : item.quantity;
-            visibleHTML += `<span class="tracker-quantity" data-item-id="${item.id}">${formattedQuantity}</span>`; // Use .tracker-quantity class
+        // Visible Part HTML
+        let visibleHTML = item.icon
+          ? `<img src="${item.icon}" alt="Icon" class="tracker-icon" loading="lazy">` // Use .tracker-icon class
+          : `<span class="tracker-icon placeholder">?</span>`; // Use .tracker-icon class
+        const formattedQuantity =
+          item.target !== null
+            ? `${item.quantity} / ${item.target}`
+            : item.quantity;
+        visibleHTML += `<span class="tracker-quantity" data-item-id="${item.id}">${formattedQuantity}</span>`; // Use .tracker-quantity class
 
-            container.innerHTML = visibleHTML + tooltipHTML;
-            containers.push(container); // Add to array for sorting
+        container.innerHTML = visibleHTML + tooltipHTML;
+        containers.push(container); // Add to array for sorting
 
-            // Set initial button state (will be attached later)
-            updateUseButtonState(item.id, item.quantity);
+        // Set initial button state (will be attached later)
+        updateUseButtonState(item.id, item.quantity);
 
-            // Apply loading state if finder is active
-            if (findIntervalId) container.classList.add("loading", "error");
-        });
+        // Apply loading state if finder is active
+        if (findIntervalId) container.classList.add("loading", "error");
+      });
 
-        // Reorder based on trackedIds and append to content
-        const desiredOrderMap = new Map(trackedIds.map((id, index) => [id, index]));
-        containers.sort((a, b) => {
-             const idA = parseInt(a.dataset.itemId, 10);
-             const idB = parseInt(b.dataset.itemId, 10);
-             return (desiredOrderMap.get(idA) ?? Infinity) - (desiredOrderMap.get(idB) ?? Infinity);
-         });
-        containers.forEach(container => content.appendChild(container));
-        // --- END ADD TRACKED ITEMS ---
+      // Reorder based on trackedIds and append to content
+      const desiredOrderMap = new Map(
+        trackedIds.map((id, index) => [id, index])
+      );
+      containers.sort((a, b) => {
+        const idA = parseInt(a.dataset.itemId, 10);
+        const idB = parseInt(b.dataset.itemId, 10);
+        return (
+          (desiredOrderMap.get(idA) ?? Infinity) -
+          (desiredOrderMap.get(idB) ?? Infinity)
+        );
+      });
+      containers.forEach((container) => content.appendChild(container));
+      // --- END ADD TRACKED ITEMS ---
     }
-}
+  }
 
   /** Removes any existing target input popup from the DOM. */
   function removeTargetPopup() {
@@ -1029,214 +1063,540 @@
   function parseItemDataFromElement(itemElement) {
     if (!itemElement) return null;
     try {
-      const qualityId = parseInt(
-        itemElement.getAttribute("data-quality-id"),
-        10
-      );
-      const quantityElement = itemElement.querySelector("span.js-item-value");
-      const buttonDiv = itemElement.querySelector('div[role="button"]');
-      const imgElement = itemElement.querySelector("img");
-      const ariaLabelSource = buttonDiv || itemElement;
-      const ariaLabel = ariaLabelSource?.getAttribute("aria-label") ?? "";
-      const imgSrc = imgElement?.getAttribute("src") ?? "";
+        const qualityId = parseInt(
+            itemElement.getAttribute("data-quality-id"),
+            10
+        );
+        const quantityElement = itemElement.querySelector("span.js-item-value");
+        const buttonDiv = itemElement.querySelector('div[role="button"]');
+        const imgElement = itemElement.querySelector("img");
+        const ariaLabelSource = buttonDiv || itemElement;
+        // 获取 aria-label，优先从 buttonDiv 获取，失败则从 itemElement 获取，都没有则为空字符串
+        const ariaLabel = ariaLabelSource?.getAttribute("aria-label") ?? "";
+        // 获取图标 src，失败则为空字符串
+        const imgSrc = imgElement?.getAttribute("src") ?? "";
 
-      if (!qualityId || !quantityElement || !ariaLabel || !imgSrc) return null;
-
-      const itemQuantity = quantityElement.textContent.trim();
-      const currentIcon = imgSrc.startsWith("//") ? `https:${imgSrc}` : imgSrc;
-
-      // --- Parse Name, Category, Description from aria-label ---
-      // Example aria-label: "Favourable Circumstance × 1; Category; Description; Click to use"
-      function extractItemNameFromAriaLabel(ariaLabel) {
-        if (!ariaLabel) return "";
-        let firstPart = ariaLabel.split(';')[0].trim();
-        firstPart = firstPart.replace(/^\d+\s*[x×]\s*/i, '');
-        firstPart = firstPart.replace(/\s*[×x]\s*\d+\s*$/i, '');
-        return firstPart.trim();
-      }
-      const itemName = extractItemNameFromAriaLabel(ariaLabel) || `Item ${qualityId}`;
-
-      let itemCategory = "";
-      let itemDescription = "";
-      let isUsable = false;
-      const categoryRegex = new RegExp(
-        `\\b(${KNOWN_CATEGORIES.join("|")})\\b`,
-        "i"
-      );
-
-      // Start parsing from the second part (after name/quantity)
-      const parts = ariaLabel.split(/;\s*/);
-      let descParts = [];
-      let categoryFound = false;
-      for (let i = 1; i < parts.length; i++) {
-        const part = parts[i].trim();
-        if (!part) continue;
-
-        if (part.toLowerCase().startsWith("click on this item")) {
-          isUsable = true;
-          continue;
+        // 基础信息校验，如果缺少关键信息则无法解析
+        if (!qualityId || !quantityElement || !ariaLabel || !imgSrc) {
+            // console.warn("FL Tracker: Missing essential data for parsing:", { qualityId, quantityElement, ariaLabel, imgSrc }, itemElement);
+            return null;
         }
 
-        const categoryMatch = !categoryFound ? part.match(categoryRegex) : null;
-        if (categoryMatch) {
-          itemCategory = categoryMatch[0];
-          const remainingText = part
-            .substring(part.indexOf(itemCategory) + itemCategory.length)
-            .trim();
-          if (remainingText) descParts.push(remainingText);
-          categoryFound = true;
-        } else {
-          descParts.push(part);
-        }
-      }
-      itemDescription = descParts.join("; ").trim();
+        const itemQuantity = quantityElement.textContent.trim();
+        // 处理协议相对 URL
+        const currentIcon = imgSrc.startsWith("//") ? `https:${imgSrc}` : imgSrc;
 
-      return {
-        id: qualityId,
-        name: itemName,
-        quantity: itemQuantity,
-        icon: currentIcon,
-        category: itemCategory,
-        description: itemDescription,
-        isUsable: isUsable,
-      };
+        // --- 从 aria-label 解析名称 ---
+        // 这个内部函数专注于从 aria-label 的第一部分提取纯名称
+        function extractItemNameFromAriaLabel(label) {
+            if (!label) return "";
+            // 取第一个分号前的部分
+            let firstPart = label.split(";")[0].trim();
+            // 移除末尾的数量标识，例如 " × 22,886" 或 " x 1"
+            // 正则表达式：匹配可选空格 + (× 或 x) + 可选空格 + (一个或多个数字，可能带逗号) + 可选空格 + 字符串结尾
+            firstPart = firstPart.replace(/\s*[×x]\s*[\d,]+\s*$/i, "");
+            return firstPart.trim();
+        }
+        const itemName = extractItemNameFromAriaLabel(ariaLabel) || `Item ${qualityId}`; // 如果提取失败，提供备用名称
+
+        // --- 从 aria-label 的剩余部分解析分类、描述和可用性 ---
+        let itemCategory = "";
+        let itemDescription = "";
+        // 默认认为物品不可用，除非找到明确的可用性提示
+        let isUsable = false;
+        const categoryRegex = new RegExp(
+            `\\b(${KNOWN_CATEGORIES.join("|")})\\b`,
+            "i"
+        );
+        // 按分号分割 aria-label，保留分隔符后的空格用于后续处理
+        const parts = ariaLabel.split(/;\s*/);
+        let descParts = []; // 用于收集描述片段
+        let categoryFound = false;
+
+        // 定义需要识别和跳过的特定提示信息（使用小写以忽略大小写比较）
+        const clickToUseHintLower = "click on this item";
+        const inStoryletHintLower = "you're in a storylet at the moment"; // 简化匹配
+
+        // 从 aria-label 的第二部分开始遍历 (索引 1)
+        for (let i = 1; i < parts.length; i++) {
+            const part = parts[i].trim();
+            if (!part) continue; // 跳过空片段
+
+            const partLower = part.toLowerCase();
+
+            // 检查是否是需要特殊处理的提示信息
+            if (partLower.startsWith(clickToUseHintLower)) {
+                isUsable = true; // 明确提示可点击
+                continue; // 跳过，不加入描述
+            }
+            if (partLower.startsWith(inStoryletHintLower)) {
+                isUsable = true; // 暗示物品本身可用，只是暂时被阻挡
+                continue; // 跳过，不加入描述
+            }
+
+            // 如果不是特殊提示，尝试匹配分类（仅当尚未找到分类时）
+            const categoryMatch = !categoryFound ? part.match(categoryRegex) : null;
+            if (categoryMatch) {
+                itemCategory = categoryMatch[0]; // 存储找到的分类
+                categoryFound = true; // 标记已找到
+                // 将当前片段中，分类名称 *之后* 的剩余文本作为描述的一部分
+                const remainingText = part.substring(part.indexOf(itemCategory) + itemCategory.length).trim();
+                // 只有当剩余文本不为空且不仅仅是标点时才添加
+                if (remainingText && !/^[,.;:]+$/.test(remainingText)) {
+                    descParts.push(remainingText);
+                }
+            } else {
+                // 如果不是特殊提示，也不是新找到的分类，则认为是描述的一部分
+                descParts.push(part);
+            }
+        }
+        // 将收集到的描述片段用 "; " 连接起来
+        itemDescription = descParts.join("; ").trim();
+
+        // 返回包含所有解析信息的对象
+        return {
+            id: qualityId,
+            name: itemName,
+            quantity: itemQuantity,
+            icon: currentIcon,
+            category: itemCategory,
+            description: itemDescription,
+            isUsable: isUsable, // 使用最终确定的可用状态
+        };
     } catch (error) {
-      console.error(
-        "FL Tracker: Error parsing item data from element:",
-        error,
-        itemElement
-      );
-      return null;
+        console.error(
+            "FL Tracker: 解析物品元素数据时出错:",
+            error,
+            itemElement
+        );
+        return null; // 解析出错时返回 null
     }
-  }
-  /** Sets up interception for fetch and XMLHttpRequest. */
+}
+
   function setupRequestInterceptor() {
-    const TARGET_URL = API_INTERCEPT_URL_PATTERN; // Use constant defined above
-    if (!TARGET_URL) {
-      console.warn(
-        "FL Tracker: No API intercept URL pattern defined. Skipping interceptor setup."
-      );
+    if (!INTERCEPT_PATTERNS || INTERCEPT_PATTERNS.length === 0) {
+      console.warn("FL Tracker: 没有定义 API 拦截 URL 模式。跳过拦截器设置。");
       return;
     }
     const { fetch: originalFetch, XMLHttpRequest: originalXHR } = window;
     const originalXhrOpen = originalXHR.prototype.open;
     const originalXhrSend = originalXHR.prototype.send;
 
-    console.log("FL Tracker: Setting up request interceptors...");
+    console.log("FL Tracker: 正在设置请求拦截器...");
 
-    // --- Patch fetch ---
+    // --- 辅助函数：检查 URL 是否匹配任何拦截模式 ---
+    function matchesAnyInterceptPattern(url) {
+      if (!url) return null;
+      for (const pattern of INTERCEPT_PATTERNS) {
+        if (pattern.test(url)) {
+          return pattern; // 返回匹配到的模式
+        }
+      }
+      return null;
+    }
+
+    // --- 修补 fetch ---
     window.fetch = async function (input, init) {
       const url = typeof input === "string" ? input : input?.url;
+      const method =
+        init?.method?.toUpperCase() ||
+        (typeof input !== "string" && input?.method?.toUpperCase()) ||
+        "GET";
+      const matchedPattern = matchesAnyInterceptPattern(url);
+      let requestBody = null;
+
+      // 如果是相关的 POST 请求 (sell 或 buy)，在发送前捕获请求体
+      if (
+        (matchedPattern === API_SELL_PATTERN ||
+          matchedPattern === API_BUY_PATTERN) &&
+        method === "POST" &&
+        init?.body
+      ) {
+        try {
+          // 假设 body 是 JSON 字符串或已经是字符串
+          if (typeof init.body === "string") {
+            requestBody = JSON.parse(init.body);
+          } else if (init.body instanceof URLSearchParams) {
+            // 如果是表单数据，解析它
+            const params = {};
+            for (const [key, value] of init.body.entries()) {
+              params[key] = value;
+            }
+            requestBody = params;
+          } else {
+            // 如果需要，添加对其他 body 类型的处理 (例如 Blob, FormData)
+            console.warn(
+              `FL Tracker: 拦截到 fetch ${url} 请求，但请求体类型未处理:`,
+              typeof init.body
+            );
+          }
+        } catch (e) {
+          console.error(
+            `FL Tracker: 解析 fetch 请求 ${url} 的请求体失败`,
+            e,
+            init.body
+          );
+        }
+      }
+
       const fetchPromise = originalFetch.apply(this, arguments);
 
-      if (url && TARGET_URL.test(url)) {
-        // Use test() method for regex
-        // console.log(`FL Tracker: Intercepting fetch: ${url}`); // Removed log
+      if (matchedPattern) {
+        // console.log(`FL Tracker: 正在拦截 fetch: ${url}`); // 除非调试，否则保持注释
         fetchPromise
           .then((response) => {
             if (response.ok) {
               response
-                .clone() // Clone before reading body
+                .clone()
                 .json()
-                .then((data) => processInterceptedData(data))
+                .then((data) => {
+                  // 将请求体传递给处理函数
+                  handleInterceptedData(url, matchedPattern, data, requestBody);
+                })
                 .catch((e) =>
-                  console.warn(
-                    `FL Tracker: Failed to parse JSON from fetch ${url}`,
-                    e
-                  )
+                  console.warn(`FL Tracker: 从 fetch ${url} 解析 JSON 失败`, e)
                 );
             } else {
               console.warn(
-                `FL Tracker: Intercepted fetch ${url} failed: ${response.status}`
+                `FL Tracker: 拦截到的 fetch ${url} 失败: ${response.status}`
               );
             }
           })
           .catch((error) =>
-            console.error(
-              `FL Tracker: Error in fetch intercept processing for ${url}`,
-              error
-            )
+            console.error(`FL Tracker: 处理 fetch 拦截 ${url} 时出错`, error)
           );
-        // We don't need to return the modified response, just observe it.
       }
-      return fetchPromise; // Return original promise regardless
+      return fetchPromise; // 无论如何都返回原始 promise
     };
 
-    // --- Patch XMLHttpRequest ---
+    // --- 修补 XMLHttpRequest ---
     originalXHR.prototype.open = function (method, url) {
-      this._trackedUrl = url; // Store URL on instance
+      this._trackedUrl = url; // 在实例上存储 URL
+      this._trackedMethod = method?.toUpperCase(); // 存储方法
       return originalXhrOpen.apply(this, arguments);
     };
 
-    originalXHR.prototype.send = function () {
+    originalXHR.prototype.send = function (data) {
+      // 捕获发送的数据
       const xhr = this;
       const originalCallback = xhr.onreadystatechange;
-      let processed = false; // Prevent multiple triggers
+      let processed = false; // 防止重复触发
+      let requestBody = null;
+      const matchedPattern = matchesAnyInterceptPattern(xhr._trackedUrl);
+
+      // 如果是相关的 POST 请求 (sell 或 buy)，在发送前捕获请求体
+      if (
+        (matchedPattern === API_SELL_PATTERN ||
+          matchedPattern === API_BUY_PATTERN) &&
+        xhr._trackedMethod === "POST" &&
+        data
+      ) {
+        try {
+          // 假设 body 是 JSON 字符串或 URL 编码的字符串
+          if (typeof data === "string") {
+            if (data.startsWith("{") && data.endsWith("}")) {
+              // 简单的 JSON 检查
+              requestBody = JSON.parse(data);
+            } else {
+              // 假设是 URL 编码
+              const params = {};
+              new URLSearchParams(data).forEach((value, key) => {
+                params[key] = value;
+              });
+              requestBody = params;
+            }
+          } else {
+            console.warn(
+              `FL Tracker: 拦截到 XHR ${xhr._trackedUrl} 请求，但请求体类型未处理:`,
+              typeof data
+            );
+          }
+        } catch (e) {
+          console.error(
+            `FL Tracker: 解析 XHR 请求 ${xhr._trackedUrl} 的请求体失败`,
+            e,
+            data
+          );
+        }
+      }
 
       xhr.onreadystatechange = function () {
         if (
           xhr.readyState === 4 &&
           !processed &&
           xhr._trackedUrl &&
-          TARGET_URL.test(xhr._trackedUrl)
+          matchedPattern
         ) {
           processed = true;
-          // console.log(`FL Tracker: Intercepting XHR: ${xhr._trackedUrl} (Status: ${xhr.status})`); // Removed log
+          // console.log(`FL Tracker: 正在拦截 XHR: ${xhr._trackedUrl} (状态: ${xhr.status})`); // 除非调试，否则保持注释
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
-              const data = JSON.parse(xhr.responseText);
-              processInterceptedData(data);
+              const responseData = JSON.parse(xhr.responseText);
+              // 将捕获的请求体和响应一起传递
+              handleInterceptedData(
+                xhr._trackedUrl,
+                matchedPattern,
+                responseData,
+                requestBody
+              );
             } catch (e) {
               console.error(
-                "FL Tracker: Error processing XHR response",
+                "FL Tracker: 处理 XHR 响应时出错",
                 e,
                 xhr.responseText
               );
             }
           } else {
             console.warn(
-              `FL Tracker: Intercepted XHR ${xhr._trackedUrl} failed: ${xhr.status}`
+              `FL Tracker: 拦截到的 XHR ${xhr._trackedUrl} 失败: ${xhr.status}`
             );
           }
         }
-        // Call original callback if it exists
+        // 如果存在原始回调，则调用它
         if (originalCallback) return originalCallback.apply(this, arguments);
       };
       return originalXhrSend.apply(this, arguments);
     };
-    console.log("FL Tracker: Request interceptors active.");
+    console.log("FL Tracker: 请求拦截器已激活，可用于多种模式。");
   }
 
-  function processInterceptedData(responseData) {
-    if (!responseData?.messages?.length) return; // Check for messages array
+  // --- 中央处理器 ---
+  function handleInterceptedData(url, pattern, responseData, requestData) {
+    // console.log("FL Tracker: 处理来自", url, "的拦截数据", "请求数据:", requestData, "响应数据:", responseData); // 调试日志
+    if (pattern === API_CHOOSEBRANCH_PATTERN) {
+      processChooseBranchData(responseData);
+    } else if (pattern === API_SELL_PATTERN) {
+      processSellData(responseData, requestData);
+    } else if (pattern === API_BUY_PATTERN) {
+      // 新增：处理 /buy 响应
+      processBuyData(responseData, requestData);
+    } else {
+      console.warn("FL Tracker: 拦截到来自未处理模式的数据:", url);
+    }
+  }
 
-    console.log("FL Tracker: Processing intercepted /choosebranch data...");
-    const trackedIds = getTrackedItemIds();
+  // --- /choosebranch 的处理逻辑 ---
+  // 为了清晰，从 processInterceptedData 重命名
+  function processChooseBranchData(responseData) {
+    if (!responseData?.messages?.length) return;
+
+    console.log("FL Tracker: 正在处理拦截到的 /choosebranch 数据...");
+    const trackedIds = getTrackedItemIds(); // 假设此函数存在
     let updated = false;
 
-    responseData.messages.forEach(message => {
-        if (message?.possession) {
-            const pData = message.possession;
-            const itemId = parseInt(pData.id, 10);
-            // Use 'level' for quantity, ensure it exists
-            if (!isNaN(itemId) && pData.level !== undefined && pData.level !== null) {
-                if (trackedIds.includes(itemId)) {
-                    const newQty = pData.level.toString();
-                    const prefix = getStorageKeyPrefix(itemId);
-                    if (GM_getValue(prefix + "quantity", null) !== newQty) {
-                        console.log(`FL Tracker: Updating item ${itemId} quantity to ${newQty} via intercept`); // Kept this confirmation log
-                        GM_setValue(prefix + "quantity", newQty);
-                        updateTrackedItemDisplay(itemId, newQty); // Update display incrementally
-                        updated = true;
-                    }
-                    // Optional: Update name/icon here too
-                    // if (pData.name) GM_setValue(prefix + "name", pData.name);
-                    // if (pData.image) GM_setValue(prefix + "icon", `https://images.fallenlondon.com/icons/${pData.image}.png`);
-                }
+    responseData.messages.forEach((message) => {
+      if (message?.possession) {
+        const pData = message.possession;
+        const itemId = parseInt(pData.id, 10);
+        // 使用 'level' 作为数量，确保它存在
+        if (
+          !isNaN(itemId) &&
+          pData.level !== undefined &&
+          pData.level !== null
+        ) {
+          if (trackedIds.includes(itemId)) {
+            const newQty = pData.level.toString();
+            const prefix = getStorageKeyPrefix(itemId); // 假设此函数存在
+            if (GM_getValue(prefix + "quantity", null) !== newQty) {
+              // 假设 GM_getValue 存在
+              console.log(
+                `FL Tracker: 通过 /choosebranch 拦截，更新物品 ${itemId} 数量为 ${newQty}`
+              );
+              GM_setValue(prefix + "quantity", newQty); // 假设 GM_setValue 存在
+              updateTrackedItemDisplay(itemId, newQty); // 假设此函数存在
+              updated = true;
             }
+          }
         }
+      }
     });
-    if (updated) console.log("FL Tracker: Sidebar display updated from intercepted data."); // Kept this confirmation log
+    if (updated)
+      console.log("FL Tracker: 侧边栏显示已根据 /choosebranch 数据更新。");
+  }
+
+  // --- /exchange/sell 的处理逻辑 ---
+  function processSellData(responseData, requestData) {
+    // requestData 应该包含来自 POST 请求的已解析 body
+    // responseData 是来自 /sell 端点的已解析 JSON 响应
+
+    // 我们需要请求中的 availabilityId 来知道 *卖了什么*
+    const availabilityId = requestData
+      ? parseInt(requestData.availabilityId, 10)
+      : NaN;
+
+    if (isNaN(availabilityId)) {
+      console.warn(
+        "FL Tracker: 无法从 /sell 请求确定售出的物品 ID (availabilityId)。",
+        requestData
+      );
+      return;
+    }
+
+    if (!responseData?.possessionsChanged?.length) return; // 检查响应中相关的数组
+
+    console.log(
+      `FL Tracker: 正在处理拦截到的 /sell 数据，针对物品 ${availabilityId}...`
+    );
+    const trackedIds = getTrackedItemIds(); // 假设此函数存在
+    let updated = false;
+
+    // 检查 *正在出售的* 物品是否被追踪
+    if (trackedIds.includes(availabilityId)) {
+      // 在响应的 possessionsChanged 数组中查找匹配的物品
+      const changedItemData = responseData.possessionsChanged.find(
+        (p) => p.id === availabilityId
+      );
+
+      if (
+        changedItemData &&
+        changedItemData.level !== undefined &&
+        changedItemData.level !== null
+      ) {
+        const newQty = changedItemData.level.toString();
+        const prefix = getStorageKeyPrefix(availabilityId); // 假设存在
+        if (GM_getValue(prefix + "quantity", null) !== newQty) {
+          // 假设存在
+          console.log(
+            `FL Tracker: 通过 /sell 拦截，更新物品 ${availabilityId} 数量为 ${newQty}`
+          );
+          GM_setValue(prefix + "quantity", newQty); // 假设存在
+          updateTrackedItemDisplay(availabilityId, newQty); // 假设存在
+          updated = true;
+        }
+      } else {
+        console.warn(
+          `FL Tracker: 在 /sell 响应中未找到售出物品 ${availabilityId} 的更新数量，或者 level 缺失。`,
+          responseData.possessionsChanged
+        );
+        // 可能是物品数量变为 0，然后它没有出现在 possessionsChanged 中？
+        // 或者只有货币变化出现？检查是否有任何 possession 匹配。
+        // 如果找不到匹配的 ID，也许物品被完全移除了（数量 0）？
+        const itemStillExists = responseData.possessionsChanged.some(
+          (p) => p.id === availabilityId
+        );
+        if (!itemStillExists) {
+          const zeroQty = "0";
+          const prefix = getStorageKeyPrefix(availabilityId);
+          if (GM_getValue(prefix + "quantity", null) !== zeroQty) {
+            console.log(
+              `FL Tracker: 通过 /sell 拦截，假定物品 ${availabilityId} 数量为 0（已移除）`
+            );
+            GM_setValue(prefix + "quantity", zeroQty);
+            updateTrackedItemDisplay(availabilityId, zeroQty);
+            updated = true;
+          }
+        }
+      }
+    }
+
+    // 同时检查是否有 *其他* 被追踪的物品（例如货币 - Pennies）在同一响应中被更新
+    responseData.possessionsChanged.forEach((pData) => {
+      const itemId = parseInt(pData.id, 10);
+      if (isNaN(itemId) || itemId === availabilityId) return; // 跳过刚刚售出的物品或无效 ID
+
+      if (
+        pData.level !== undefined &&
+        pData.level !== null &&
+        trackedIds.includes(itemId)
+      ) {
+        const newQty = pData.level.toString();
+        const prefix = getStorageKeyPrefix(itemId);
+        if (GM_getValue(prefix + "quantity", null) !== newQty) {
+          console.log(
+            `FL Tracker: 通过 /sell 拦截，更新相关物品 ${itemId} 数量为 ${newQty}`
+          );
+          GM_setValue(prefix + "quantity", newQty);
+          updateTrackedItemDisplay(itemId, newQty);
+          updated = true;
+        }
+      }
+    });
+
+    if (updated) console.log("FL Tracker: 侧边栏显示已根据 /sell 数据更新。");
+  }
+
+  // --- /exchange/buy 的处理逻辑 --- (新增)
+  function processBuyData(responseData, requestData) {
+    // requestData 应该包含来自 POST 请求的已解析 body
+    // responseData 是来自 /buy 端点的已解析 JSON 响应
+
+    // 我们需要请求中的 availabilityId 来知道 *买了什么*
+    const availabilityId = requestData
+      ? parseInt(requestData.availabilityId, 10)
+      : NaN;
+
+    if (isNaN(availabilityId)) {
+      console.warn(
+        "FL Tracker: 无法从 /buy 请求确定购买的物品 ID (availabilityId)。",
+        requestData
+      );
+      return;
+    }
+
+    if (!responseData?.possessionsChanged?.length) return; // 检查响应中相关的数组
+
+    console.log(
+      `FL Tracker: 正在处理拦截到的 /buy 数据，针对物品 ${availabilityId}...`
+    );
+    const trackedIds = getTrackedItemIds(); // 假设此函数存在
+    let updated = false;
+
+    // 检查 *正在购买的* 物品是否被追踪
+    if (trackedIds.includes(availabilityId)) {
+      // 在响应的 possessionsChanged 数组中查找匹配的物品
+      const changedItemData = responseData.possessionsChanged.find(
+        (p) => p.id === availabilityId
+      );
+
+      if (
+        changedItemData &&
+        changedItemData.level !== undefined &&
+        changedItemData.level !== null
+      ) {
+        const newQty = changedItemData.level.toString();
+        const prefix = getStorageKeyPrefix(availabilityId); // 假设存在
+        if (GM_getValue(prefix + "quantity", null) !== newQty) {
+          // 假设存在
+          console.log(
+            `FL Tracker: 通过 /buy 拦截，更新物品 ${availabilityId} 数量为 ${newQty}`
+          );
+          GM_setValue(prefix + "quantity", newQty); // 假设存在
+          updateTrackedItemDisplay(availabilityId, newQty); // 假设存在
+          updated = true;
+        }
+      } else {
+        // 在购买场景下，如果找不到物品，这通常是个错误，或者 API 结构不同
+        console.warn(
+          `FL Tracker: 在 /buy 响应中未找到购买的物品 ${availabilityId} 的更新数据，或者 level 缺失。`,
+          responseData.possessionsChanged
+        );
+      }
+    }
+
+    // 同时检查是否有 *其他* 被追踪的物品（例如花费的货币 - Pennies）在同一响应中被更新
+    responseData.possessionsChanged.forEach((pData) => {
+      const itemId = parseInt(pData.id, 10);
+      if (isNaN(itemId) || itemId === availabilityId) return; // 跳过刚刚购买的物品或无效 ID
+
+      if (
+        pData.level !== undefined &&
+        pData.level !== null &&
+        trackedIds.includes(itemId)
+      ) {
+        const newQty = pData.level.toString();
+        const prefix = getStorageKeyPrefix(itemId);
+        if (GM_getValue(prefix + "quantity", null) !== newQty) {
+          console.log(
+            `FL Tracker: 通过 /buy 拦截，更新相关物品 ${itemId} 数量为 ${newQty}`
+          );
+          GM_setValue(prefix + "quantity", newQty);
+          updateTrackedItemDisplay(itemId, newQty);
+          updated = true;
+        }
+      }
+    });
+
+    if (updated) console.log("FL Tracker: 侧边栏显示已根据 /buy 数据更新。");
   }
 
   /** Uses an item via the API. */
@@ -1280,8 +1640,8 @@
           );
           setTimeout(() => {
             window.location.href = "/"; // Navigate to root
-            }, 100); // 100ms delay
-          } else {
+          }, 100); // 100ms delay
+        } else {
           const errorMessage =
             response.response?.message ||
             response.statusText ||
