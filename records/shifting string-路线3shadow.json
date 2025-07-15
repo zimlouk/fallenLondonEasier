@@ -1,0 +1,80 @@
+[
+  {
+    "type": "branch_button",
+    "branchId": "259289",
+    "buttonText": "Go",
+    "titleHint": "Search for a remnant of the Second City",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span><span> <span class=\"button__more\">(0)</span></span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Present but never spoken of",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Onwards</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "259291",
+    "buttonText": "Go",
+    "titleHint": "Observe the city from on high",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Change in perspective",
+    "buttonText": "Try again",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Try again</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "259291",
+    "buttonText": "Go",
+    "titleHint": "Observe the city from on high",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Change in perspective",
+    "buttonText": "Try again",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Try again</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "259291",
+    "buttonText": "Go",
+    "titleHint": "Observe the city from on high",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Change in perspective",
+    "buttonText": "Try again",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Try again</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "259291",
+    "buttonText": "Go",
+    "titleHint": "Observe the city from on high",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Change in perspective",
+    "buttonText": "Try again",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Try again</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "259316",
+    "buttonText": "Go",
+    "titleHint": "Follow your feet",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Veneration of a lost sun",
+    "buttonText": "Try again",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Try again</button>"
+  }
+]

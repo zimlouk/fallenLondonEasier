@@ -1,0 +1,64 @@
+[
+  {
+    "type": "titled_block_button",
+    "titleHint": "Found at Zee",
+    "buttonText": "Receive Report",
+    "debug_element_html": "<button class=\"agent-assign-button\" type=\"button\">Receive Report</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "271000",
+    "buttonText": "Go",
+    "titleHint": "We attempted a safe approach to the beleaguered vessel...",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "With a mixture of satisfaction and apprehension",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Onwards</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "271001",
+    "buttonText": "Go",
+    "titleHint": "We made way once more...",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Until we saw the lights of Wolfstack, and cheered...",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Onwards</button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "The Clay Breaker",
+    "buttonText": "Assign",
+    "debug_element_html": "<button class=\"agent-assign-button\" type=\"button\">Assign</button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "The Business of Shipping and Salvage",
+    "buttonText": "Consider",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Consider</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Found at Zee",
+    "buttonText": "Prepare",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Prepare</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Found at Zee",
+    "buttonText": "Send off",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Send off</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Standard work",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Onwards</span></button>"
+  }
+]

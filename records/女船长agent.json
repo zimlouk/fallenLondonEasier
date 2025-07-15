@@ -1,0 +1,77 @@
+[
+  {
+    "type": "titled_block_button",
+    "titleHint": "Beneath the Waters",
+    "buttonText": "Receive Report",
+    "debug_element_html": "<button class=\"agent-assign-button\" type=\"button\">Receive Report</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "271016",
+    "buttonText": "Go",
+    "titleHint": "We first made observations, through the surface of the water...",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Insufficient information",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Onwards</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "271017",
+    "buttonText": "Go",
+    "titleHint": "I donned my suit and stepped into the airlock...",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "I made a steady traversal...",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Onwards</button>"
+  },
+  {
+    "type": "branch_button",
+    "branchId": "271019",
+    "buttonText": "Go",
+    "titleHint": "I sought entrance to the wreck...",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Go</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Some dark god, pleading for admission...",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"button button--primary\" type=\"button\">Onwards</button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "The Wily Bathyphile",
+    "buttonText": "Assign",
+    "debug_element_html": "<button class=\"agent-assign-button\" type=\"button\">Assign</button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "The Business of Shipping and Salvage",
+    "buttonText": "Consider",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Consider</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Beneath the Waters",
+    "buttonText": "Prepare",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Prepare</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "Beneath the Waters",
+    "buttonText": "Send off",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Send off</span></button>"
+  },
+  {
+    "type": "titled_block_button",
+    "titleHint": "A journey below",
+    "buttonText": "Onwards",
+    "debug_element_html": "<button class=\"js-tt button button--primary button--margin button--go\" type=\"button\"><span>Onwards</span></button>"
+  }
+]
