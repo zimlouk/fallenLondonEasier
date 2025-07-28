@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fallen London Action Recorder
 // @namespace    http://tampermonkey.net/
-// @version      0.5
+// @version      0.8
 // @description  Record, replay, and handle failures on Fallen London story pages.
 // @author       Xeo
 // @match        https://www.fallenlondon.com/*
@@ -1151,20 +1151,34 @@
     });
 
     // --- UI Show/Hide Events ---
-    ball.addEventListener("click", function (e) {
-      if (isDragging) return; // Don't trigger click when drag ends
-      panel.style.display = panel.style.display === "none" ? "block" : "none";
+    ball.addEventListener('click', function(e) {
+        if (isDragging) return; // Don't trigger click when drag ends
+        // 如果面板是隐藏的，就显示它
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+        } 
+        // 如果面板是显示的，并且不是在录制或播放中，就隐藏它
+        else if (!isRecording && !isPlaying) {
+            panel.style.display = 'none';
+        }
     });
 
     // Optional: click outside panel to close
-    document.addEventListener("mousedown", (e) => {
-      if (
-        panel.style.display === "block" &&
-        !panel.contains(e.target) &&
-        !ball.contains(e.target)
-      ) {
-        panel.style.display = "none";
-      }
+    document.addEventListener('mousedown', (e) => {
+        // 条件1: 面板当前是显示的
+        // 条件2: 没有在录制
+        // 条件3: 没有在播放
+        // 条件4: 点击的目标不是面板本身或其子元素
+        // 条件5: 点击的目标不是悬浮球本身或其子元素
+        if (
+            panel.style.display === 'block' &&
+            !isRecording && 
+            !isPlaying &&
+            !panel.contains(e.target) &&
+            !ball.contains(e.target)
+        ) {
+            panel.style.display = 'none';
+        }
     });
 
     // --- CSS Styles (按钮内边距&方角) ---
