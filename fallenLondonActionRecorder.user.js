@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         Fallen London Action Recorder
 // @namespace    http://tampermonkey.net/
-// @version      0.6
+// @version      0.5
 // @description  Record, replay, and handle failures on Fallen London story pages.
 // @author       Xeo
 // @match        https://www.fallenlondon.com/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        unsafeWindow
 // ==/UserScript==
 
 (function () {
@@ -25,6 +26,7 @@
   let playbackIndex = 0;
   let isPlaying = false;
   let onFailureAction = "stop"; // 'stop' or 'retry'
+  let isWaitingForOutfitSelection = false;
 
   // --- UI Elements ---
   let recordButton,
@@ -102,6 +104,46 @@
 
   function getElementIdentifier(clickedEl) {
     if (!clickedEl || !clickedEl.tagName) return null;
+
+    // 策略 1: 检查是否是选项 (这个逻辑是正确的，保持不变)
+    const outfitOption = clickedEl.closest('[class*="-option"]');
+    if (outfitOption && outfitOption.closest('[class*="-menu"]')) {
+        return {
+            type: 'outfit_option',
+            outfitName: getOriginalTextContent(outfitOption),
+            debug_element_html: getCleanedDebugHtml(outfitOption)
+        };
+    }
+
+    // 策略 2: 检查是否是下拉框触发器 (全新的、更可靠的逻辑)
+    // 从被点击的元素向上寻找一个共同的父容器，这个父容器必须同时包含 "Outfit" 标题和 react-select 容器
+    const commonParent = clickedEl.closest('.outfit-selector'); // 假设最外层有一个 'outfit-selector' 类，如果没有，则使用下一个备用方案
+    const title = document.querySelector('.outfit-selector__title'); // 先找到页面上唯一的 "Outfit" 标题
+
+    if (title) {
+        // 找到标题的父元素，我们假设点击区域和标题在这个父元素下
+        const titleParent = title.parentElement; 
+        if (titleParent && titleParent.contains(clickedEl)) {
+             // 如果点击的元素在标题的父容器内，并且这个容器里也包含了react-select组件，
+             // 那么我们就可以确认这是一次对下拉框的点击。
+            if (titleParent.querySelector('[class*="css-"]')) { // react-select的类名通常以css-开头
+                 return {
+                    type: 'outfit_dropdown_trigger',
+                    debug_element_html: getCleanedDebugHtml(titleParent)
+                 };
+            }
+        }
+    }
+    
+    // 备用/原始逻辑：如果以上逻辑失效，我们回退到检查点击元素是否是react-select的控制部分
+    const controlEl = clickedEl.closest('[class*="-control"]');
+    if(controlEl && controlEl.closest('div[style*="margin-right"]')?.querySelector('.outfit-selector__title')) {
+        return {
+            type: 'outfit_dropdown_trigger',
+            debug_element_html: getCleanedDebugHtml(controlEl)
+        };
+    }
+
     const buttonEl = clickedEl.closest(
       'button, input[type="button"], input[type="submit"], [role="button"]'
     );
@@ -310,26 +352,288 @@
   }
 
   function isElementVisible(el) {
-    if (!el) return false;
-    if (
-      el.classList.contains("u-visually-hidden") ||
-      el.style.display === "none" ||
-      el.closest(".u-visually-hidden")
-    )
+    if (!el) {
+      // console.log('[isElementVisible] Verdict: false (element is null)');
       return false;
-    if (
-      el.closest("[data-immersive-translate-walked]") &&
-      el.offsetParent === null &&
-      el.offsetWidth === 0 &&
-      el.offsetHeight === 0
-    ) {
-      if (
-        el.tagName === "FONT" &&
-        el.classList.contains("immersive-translate-target-wrapper")
-      )
-        return false;
     }
-    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+
+    const elemTag =
+      el.tagName +
+      (el.id ? "#" + el.id : "") +
+      (el.className ? "." + el.className.toString().split(" ").join(".") : "");
+    // console.log(`[isElementVisible] Checking element: ${elemTag}`);
+
+    // Rule 1: Is it even in the document?
+    if (!document.body.contains(el)) {
+      // console.log(`[isElementVisible] Verdict on ${elemTag}: false (not in document.body)`);
+      return false;
+    }
+
+    // Rule 2: Check computed styles for definitive 'hidden' properties
+    const style = getComputedStyle(el);
+    if (style.display === "none") {
+      // console.log(`[isElementVisible] Verdict on ${elemTag}: false (computed style display is 'none')`);
+      return false;
+    }
+    if (style.visibility === "hidden") {
+      // console.log(`[isElementVisible] Verdict on ${elemTag}: false (computed style visibility is 'hidden')`);
+      return false;
+    }
+    if (parseFloat(style.opacity) < 0.1) {
+      // console.log(`[isElementVisible] Verdict on ${elemTag}: false (computed style opacity is < 0.1)`);
+      return false;
+    }
+
+    // Rule 3: Check dimensions. This is the most likely point of failure.
+    // An element can be 'visible' but have zero size if it's positioned off-screen or its content determines its size later.
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 && rect.height < 1) {
+      // Let's check if any of its children are visible. This handles wrapper divs.
+      if (el.children.length > 0) {
+        // console.log(`[isElementVisible] ${elemTag} has zero dimensions. Checking its children...`);
+        for (let i = 0; i < el.children.length; i++) {
+          if (isElementVisible(el.children[i])) {
+            // console.log(`[isElementVisible] Verdict on ${elemTag}: true (a child is visible)`);
+            return true;
+          }
+        }
+      }
+      // If it has no children or no visible children, and zero size, it's not visible.
+      // console.log(`[isElementVisible] Verdict on ${elemTag}: false (width/height is zero and no visible children). Rect:`, rect);
+      return false;
+    }
+
+    // If it passed all checks, it's visible.
+    // console.log(`[isElementVisible] Verdict on ${elemTag}: true. Rect:`, rect);
+    return true;
+  }
+
+  // --- Helper function to ensure click event is dispatched ---
+  function forceClick(element) {
+    if (!element) return;
+
+    // Method 1: Standard click, try this first
+    element.click();
+
+    // Method 2: Dispatch Mouse Events, using unsafeWindow for compatibility
+    // This can be more reliable for JS frameworks like React
+    try {
+      const eventSequence = [
+        "pointerdown",
+        "mousedown",
+        "pointerup",
+        "mouseup",
+        "click",
+      ];
+      eventSequence.forEach((eventType) => {
+        const event = new MouseEvent(eventType, {
+          view: unsafeWindow, // <<< --- 使用 unsafeWindow ---
+          bubbles: true,
+          cancelable: true,
+        });
+        element.dispatchEvent(event);
+      });
+    } catch (e) {
+      console.error("Failed to dispatch mouse events with unsafeWindow:", e);
+      // Fallback or just log the error, as the primary .click() might have worked.
+    }
+  }
+
+  // 在 findElement 和 isElementVisible 之后，但在 checkForFailure 之前，可以添加这个新函数
+
+  async function executeChangeOutfit(action) {
+    updateStatus(
+      `[${playbackIndex + 1}/${
+        currentPlaybackActions.length
+      }] Changing outfit to: ${action.outfitName}`
+    );
+    console.log(
+      `[Playback] Starting 'change_outfit' action for: ${action.outfitName}`
+    );
+
+    // 步骤 1: 找到并点击下拉框
+    let dropdownTrigger = null;
+    let startTime = Date.now();
+    updateStatus("Step 1/2: Looking for the outfit dropdown...");
+
+    while (Date.now() - startTime < ELEMENT_TIMEOUT && isPlaying) {
+      const titleSpan = Array.from(
+        document.querySelectorAll(".outfit-selector__title")
+      ).find(isElementVisible);
+      if (titleSpan) {
+        const container = titleSpan.closest('div[style*="margin-right"]');
+        if (container) {
+          dropdownTrigger = container.querySelector(".css-88n967-control");
+          if (!dropdownTrigger) {
+            dropdownTrigger = container.querySelector('[class*="-control"]');
+          }
+        }
+      }
+
+      if (dropdownTrigger && isElementVisible(dropdownTrigger)) break;
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+    }
+
+    if (!dropdownTrigger) {
+      updateStatus(`Error: Outfit dropdown not found. Stopping.`);
+      console.error(
+        "Could not find the outfit dropdown trigger for action:",
+        action
+      );
+      return false;
+    }
+
+    updateStatus("Step 1/2: Found dropdown. Force-clicking it now.");
+    console.log("[Playback] Found dropdown trigger. Element:", dropdownTrigger);
+    console.log("[Playback] Attempting a forced click...");
+
+    const originalOutline = dropdownTrigger.style.outline;
+    dropdownTrigger.style.outline = "3px solid #ff9800";
+    dropdownTrigger.scrollIntoView({ block: "center", behavior: "auto" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    forceClick(dropdownTrigger);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    dropdownTrigger.style.outline = originalOutline;
+
+    // --- *** 最终诊断验证逻辑 *** ---
+    let menu = null;
+    let menuAppeared = false;
+    const verificationStartTime = Date.now();
+    console.log("[Playback] Verifying if outfit menu has opened...");
+
+    while (Date.now() - verificationStartTime < 3000 && isPlaying) {
+      menu = document.querySelector(".css-o10qzr-menu"); // 使用你提供的精确类名
+      if (menu && isElementVisible(menu)) {
+        menuAppeared = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (!menuAppeared) {
+      updateStatus(`Error: Menu detected but deemed invisible. Stopping.`);
+      console.error(
+        "CRITICAL DIAGNOSIS: The menu element was found in the DOM, but isElementVisible() returned false."
+      );
+      // 如果我们找到了菜单元素，但它被判断为不可见，就把它打印出来！
+      if (menu) {
+        console.log("The problematic menu element is:", menu);
+        console.log("Computed Styles:", getComputedStyle(menu));
+        console.log("Bounding Rect:", menu.getBoundingClientRect());
+        console.log(
+          "Offset Width/Height:",
+          menu.offsetWidth,
+          menu.offsetHeight
+        );
+      } else {
+        console.log(
+          "The menu element was not even found in the DOM with selector '.css-o10qzr-menu'"
+        );
+      }
+      return false;
+    }
+    console.log("[Playback] Outfit menu successfully opened and detected.");
+
+    // 步骤 2: 找到并点击选项 (这部分逻辑不变)
+    let optionElement = null;
+    let menuStartTime = Date.now();
+    updateStatus(`Step 2/2: Looking for option '${action.outfitName}'...`);
+    while (Date.now() - menuStartTime < ELEMENT_TIMEOUT && isPlaying) {
+      const options = Array.from(
+        document.querySelectorAll('[class*="-option"]')
+      );
+      optionElement = options.find(
+        (opt) =>
+          getOriginalTextContent(opt) === action.outfitName &&
+          isElementVisible(opt)
+      );
+      if (optionElement) break;
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+    }
+
+    if (!optionElement) {
+      updateStatus(
+        `Error: Outfit option '${action.outfitName}' not found. Stopping.`
+      );
+      console.error("Could not find the outfit option for action:", action);
+      if (isElementVisible(dropdownTrigger)) forceClick(dropdownTrigger); // 尝试关闭
+      return false;
+    }
+
+    updateStatus(
+      `Step 2/2: Found option '${action.outfitName}'. Force-clicking it.`
+    );
+    console.log(
+      `[Playback] Found and force-clicking the outfit option: ${action.outfitName}`
+    );
+
+    const optionOutline = optionElement.style.outline;
+    optionElement.style.outline = "3px solid #4CAF50";
+
+    forceClick(optionElement); // 对选项也使用强制点击
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    optionElement.style.outline = optionOutline;
+    // --- *** 新增：等待页面刷新 *** ---
+    updateStatus("Outfit changed. Waiting for main content to refresh...");
+    console.log(
+      "[Playback] Waiting for main content refresh after changing outfit."
+    );
+
+    const mainContentContainer = document.querySelector(
+      ".tab-content__bordered-container"
+    );
+
+    if (!mainContentContainer) {
+      console.warn(
+        "Could not find .tab-content__bordered-container to monitor. Falling back to a fixed delay."
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2500)); // 如果找不到容器，则固定等待2.5秒
+    } else {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          observer.disconnect();
+          console.warn(
+            "MutationObserver timed out after 10 seconds. The page might not have refreshed as expected."
+          );
+          resolve(); // 超时也继续执行，避免卡死
+        }, 10000); // 设置一个10秒的超时，防止无限等待
+
+        const observer = new MutationObserver((mutationsList, obs) => {
+          // 我们关心的是子节点的大规模变化，而不是小的属性变化
+          for (const mutation of mutationsList) {
+            if (
+              mutation.type === "childList" &&
+              (mutation.addedNodes.length > 0 ||
+                mutation.removedNodes.length > 0)
+            ) {
+              console.log(
+                "[Playback] Main content refresh detected by MutationObserver."
+              );
+              updateStatus("Content refreshed. Proceeding to next action.");
+              clearTimeout(timeout);
+              obs.disconnect(); // 停止监听
+              resolve();
+              return;
+            }
+          }
+        });
+
+        // 配置观察器：监听子节点的变化
+        const config = { childList: true, subtree: true };
+        observer.observe(mainContentContainer, config);
+      });
+    }
+
+    // 在智能等待之后，再加一个非常短的额外延迟，确保新内容渲染完成
+    await new Promise((resolve) =>
+      setTimeout(resolve, 300 + Math.random() * 200)
+    );
+
+    console.log("[Playback] 'change_outfit' action completed successfully.");
+    return true;
   }
 
   function checkForFailure() {
@@ -396,10 +700,63 @@
   }
 
   // --- Event Handlers ---
+  // --- Event Handlers ---
   function handleDocumentClick(event) {
     if (!isRecording || event.target.closest("#fl-recorder-panel")) return;
+
     const identifier = getElementIdentifier(event.target);
-    if (identifier) {
+
+    // 如果点击的元素无法被识别，直接返回
+    if (!identifier) {
+      // 如果我们正在等待选择装备，但用户点击了无关区域，则取消等待
+      if (isWaitingForOutfitSelection) {
+        isWaitingForOutfitSelection = false;
+        updateStatus("Outfit selection cancelled. Resuming normal recording.");
+      } else {
+        updateStatus("Could not identify clicked element meaningfully.");
+      }
+      return;
+    }
+
+    // --- 逻辑重构，更清晰地处理各种情况 ---
+
+    // 情况 1: 用户点击了下拉框触发器
+    if (identifier.type === "outfit_dropdown_trigger") {
+      isWaitingForOutfitSelection = true;
+      updateStatus("Outfit dropdown opened. Click an outfit to record.");
+      return; // 不记录这个点击本身，只更新状态并等待下一个点击
+    }
+
+    // 情况 2: 用户点击了装备选项，并且我们正在等待这个点击
+    if (identifier.type === "outfit_option" && isWaitingForOutfitSelection) {
+      const compositeAction = {
+        type: "change_outfit", // 关键：记录的动作类型是 'change_outfit'
+        outfitName: identifier.outfitName,
+        debug_element_html: getCleanedDebugHtml(
+          event.target.closest('[class*="-option"]')
+        ),
+      };
+      recordedActions.push(compositeAction);
+      updateStatus(`Recorded: Change outfit to '${identifier.outfitName}'`);
+      console.log("Recorded Composite Action:", compositeAction);
+      isWaitingForOutfitSelection = false; // 操作完成，重置等待状态
+      return;
+    }
+
+    // 情况 3: 用户点击了任何其他可录制的按钮
+    // 如果此时正在等待选择装备，意味着用户放弃了换装，转而点击了其他按钮。
+    if (isWaitingForOutfitSelection) {
+      isWaitingForOutfitSelection = false;
+      updateStatus(
+        "Outfit selection cancelled. Recording the new action instead."
+      );
+    }
+
+    // 只有非装备相关的、普通的可识别按钮才会被记录
+    if (
+      identifier.type !== "outfit_dropdown_trigger" &&
+      identifier.type !== "outfit_option"
+    ) {
       recordedActions.push(identifier);
       updateStatus(
         `Recorded: [${identifier.type}] ${
@@ -407,8 +764,11 @@
         }`
       );
       console.log("Recorded Action:", identifier);
-    } else {
-      updateStatus("Could not identify clicked button meaningfully.");
+    } else if (identifier.type === "outfit_option") {
+      // 如果走到了这里，说明用户在没有打开下拉框的情况下点击了选项（非法操作），忽略它。
+      updateStatus(
+        `Ignored out-of-sequence click on outfit option: ${identifier.outfitName}. Please click the dropdown first.`
+      );
     }
   }
 
@@ -515,6 +875,19 @@
         break;
       }
       const action = currentPlaybackActions[playbackIndex];
+
+      // --- 重构后的逻辑 ---
+      if (action.type === "change_outfit") {
+        const success = await executeChangeOutfit(action);
+        if (success) {
+          playbackIndex++;
+          consecutiveFailuresOnStep = 0;
+        } else {
+          // 如果执行失败，停止播放
+          isPlaying = false;
+        }
+        continue; // 处理完后直接进入下一次循环
+      }
       updateStatus(
         `[${playbackIndex + 1}/${currentPlaybackActions.length}] Look: ${
           action.buttonText || action.id
@@ -613,36 +986,36 @@
     }
   }
 
-// --- UI Setup ---
-async function createUI() {
+  // --- UI Setup ---
+  async function createUI() {
     // 1. Create the floating ball trigger
-    const ball = document.createElement('div');
-    ball.id = 'fl-recorder-ball';
-    ball.title = 'FL Action Recorder';
+    const ball = document.createElement("div");
+    ball.id = "fl-recorder-ball";
+    ball.title = "FL Action Recorder";
     document.body.appendChild(ball);
 
     // 读取小球位置
     function getBallPosition() {
-        let pos = localStorage.getItem('flRecorderBallPos');
-        if (pos) {
-            try {
-                return JSON.parse(pos);
-            } catch { }
-        }
-        // 默认右下角
-        return {right: 24, bottom: 24};
+      let pos = localStorage.getItem("flRecorderBallPos");
+      if (pos) {
+        try {
+          return JSON.parse(pos);
+        } catch {}
+      }
+      // 默认右下角
+      return { right: 24, bottom: 24 };
     }
     function setBallPosition(pos) {
-        localStorage.setItem('flRecorderBallPos', JSON.stringify(pos));
+      localStorage.setItem("flRecorderBallPos", JSON.stringify(pos));
     }
     function applyBallPosition(pos) {
-        ball.style.left = '';
-        ball.style.top = '';
-        ball.style.right = '';
-        ball.style.bottom = '';
-        for (const k in pos) {
-            ball.style[k] = pos[k] + 'px';
-        }
+      ball.style.left = "";
+      ball.style.top = "";
+      ball.style.right = "";
+      ball.style.bottom = "";
+      for (const k in pos) {
+        ball.style[k] = pos[k] + "px";
+      }
     }
 
     // 初始化位置
@@ -650,81 +1023,83 @@ async function createUI() {
     applyBallPosition(ballPos);
 
     // 拖拽逻辑
-    let isDragging = false, dragOffsetX = 0, dragOffsetY = 0;
+    let isDragging = false,
+      dragOffsetX = 0,
+      dragOffsetY = 0;
 
-    ball.addEventListener('mousedown', function(e) {
-        isDragging = true;
-        // 计算鼠标在球内的偏移
-        const rect = ball.getBoundingClientRect();
-        dragOffsetX = e.clientX - rect.left;
-        dragOffsetY = e.clientY - rect.top;
-        document.body.style.userSelect = "none";
+    ball.addEventListener("mousedown", function (e) {
+      isDragging = true;
+      // 计算鼠标在球内的偏移
+      const rect = ball.getBoundingClientRect();
+      dragOffsetX = e.clientX - rect.left;
+      dragOffsetY = e.clientY - rect.top;
+      document.body.style.userSelect = "none";
     });
 
-    document.addEventListener('mousemove', function(e) {
-        if (isDragging) {
-            // 限制在窗口内
-            let x = e.clientX - dragOffsetX;
-            let y = e.clientY - dragOffsetY;
-            x = Math.max(0, Math.min(window.innerWidth - ball.offsetWidth, x));
-            y = Math.max(0, Math.min(window.innerHeight - ball.offsetHeight, y));
-            ball.style.left = x + 'px';
-            ball.style.top = y + 'px';
-            ball.style.right = '';
-            ball.style.bottom = '';
-        }
+    document.addEventListener("mousemove", function (e) {
+      if (isDragging) {
+        // 限制在窗口内
+        let x = e.clientX - dragOffsetX;
+        let y = e.clientY - dragOffsetY;
+        x = Math.max(0, Math.min(window.innerWidth - ball.offsetWidth, x));
+        y = Math.max(0, Math.min(window.innerHeight - ball.offsetHeight, y));
+        ball.style.left = x + "px";
+        ball.style.top = y + "px";
+        ball.style.right = "";
+        ball.style.bottom = "";
+      }
     });
 
-    document.addEventListener('mouseup', function(e) {
-        if (isDragging) {
-            isDragging = false;
-            document.body.style.userSelect = "";
-            // 计算吸附到最近窗口边缘
-            let x = ball.offsetLeft, y = ball.offsetTop;
-            let right = window.innerWidth - x - ball.offsetWidth;
-            let bottom = window.innerHeight - y - ball.offsetHeight;
-            // 默认吸附到最近的边
-            let min = Math.min(x, y, right, bottom);
-            let pos = {};
-            if (min === right) pos = {right, bottom}; // 右下
-            else if (min === bottom) pos = {left: x, bottom};
-            else if (min === x) pos = {left: x, top: y};
-            else pos = {right, top: y};
-            applyBallPosition(pos);
-            setBallPosition(pos);
-        }
+    document.addEventListener("mouseup", function (e) {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.userSelect = "";
+        // 计算吸附到最近窗口边缘
+        let x = ball.offsetLeft,
+          y = ball.offsetTop;
+        let right = window.innerWidth - x - ball.offsetWidth;
+        let bottom = window.innerHeight - y - ball.offsetHeight;
+        // 默认吸附到最近的边
+        let min = Math.min(x, y, right, bottom);
+        let pos = {};
+        if (min === right) pos = { right, bottom }; // 右下
+        else if (min === bottom) pos = { left: x, bottom };
+        else if (min === x) pos = { left: x, top: y };
+        else pos = { right, top: y };
+        applyBallPosition(pos);
+        setBallPosition(pos);
+      }
     });
 
     // 窗口缩放时，自动矫正球在视窗内
-    window.addEventListener('resize', function() {
-        let pos = getBallPosition();
-        // 只用left/top或right/bottom其中一组
-        let x, y;
-        if (pos.left !== undefined) {
-            x = Math.min(pos.left, window.innerWidth - ball.offsetWidth);
-            pos.left = Math.max(0, x);
-        }
-        if (pos.right !== undefined) {
-            x = Math.min(pos.right, window.innerWidth - ball.offsetWidth);
-            pos.right = Math.max(0, x);
-        }
-        if (pos.top !== undefined) {
-            y = Math.min(pos.top, window.innerHeight - ball.offsetHeight);
-            pos.top = Math.max(0, y);
-        }
-        if (pos.bottom !== undefined) {
-            y = Math.min(pos.bottom, window.innerHeight - ball.offsetHeight);
-            pos.bottom = Math.max(0, y);
-        }
-        applyBallPosition(pos);
-        setBallPosition(pos);
+    window.addEventListener("resize", function () {
+      let pos = getBallPosition();
+      // 只用left/top或right/bottom其中一组
+      let x, y;
+      if (pos.left !== undefined) {
+        x = Math.min(pos.left, window.innerWidth - ball.offsetWidth);
+        pos.left = Math.max(0, x);
+      }
+      if (pos.right !== undefined) {
+        x = Math.min(pos.right, window.innerWidth - ball.offsetWidth);
+        pos.right = Math.max(0, x);
+      }
+      if (pos.top !== undefined) {
+        y = Math.min(pos.top, window.innerHeight - ball.offsetHeight);
+        pos.top = Math.max(0, y);
+      }
+      if (pos.bottom !== undefined) {
+        y = Math.min(pos.bottom, window.innerHeight - ball.offsetHeight);
+        pos.bottom = Math.max(0, y);
+      }
+      applyBallPosition(pos);
+      setBallPosition(pos);
     });
 
-
     // 2. Create the hidden panel
-    const panel = document.createElement('div');
-    panel.id = 'fl-recorder-panel';
-    panel.style.display = 'none'; // Start hidden
+    const panel = document.createElement("div");
+    panel.id = "fl-recorder-panel";
+    panel.style.display = "none"; // Start hidden
 
     panel.innerHTML = `
         <h3>FL Action Recorder</h3>
@@ -748,46 +1123,48 @@ async function createUI() {
     document.body.appendChild(panel);
 
     // 3. Panel logic and event binding (unchanged)
-    recordButton = document.getElementById('fl-record-btn');
-    stopButton = document.getElementById('fl-stop-btn');
-    loadButton = document.getElementById('fl-load-btn');
-    playButton = document.getElementById('fl-play-btn');
-    fileInput = document.getElementById('fl-file-input');
-    statusDiv = document.getElementById('fl-status-div');
-    failureActionSelect = document.getElementById('fl-failure-action');
+    recordButton = document.getElementById("fl-record-btn");
+    stopButton = document.getElementById("fl-stop-btn");
+    loadButton = document.getElementById("fl-load-btn");
+    playButton = document.getElementById("fl-play-btn");
+    fileInput = document.getElementById("fl-file-input");
+    statusDiv = document.getElementById("fl-status-div");
+    failureActionSelect = document.getElementById("fl-failure-action");
 
-    recordButton.addEventListener('click', startRecording);
-    stopButton.addEventListener('click', stopRecording);
-    loadButton.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', handleLoadFile);
-    playButton.addEventListener('click', () => { isPlaying ? stopPlayback() : startPlayback(); });
+    recordButton.addEventListener("click", startRecording);
+    stopButton.addEventListener("click", stopRecording);
+    loadButton.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", handleLoadFile);
+    playButton.addEventListener("click", () => {
+      isPlaying ? stopPlayback() : startPlayback();
+    });
 
     // Load saved preference for failure action
-    onFailureAction = await GM_getValue('flRecorderFailureAction', 'stop');
+    onFailureAction = await GM_getValue("flRecorderFailureAction", "stop");
     failureActionSelect.value = onFailureAction;
     updateStatus(`Failure mode: ${onFailureAction}. Ready.`);
 
-    failureActionSelect.addEventListener('change', async (event) => {
-        onFailureAction = event.target.value;
-        await GM_setValue('flRecorderFailureAction', onFailureAction);
-        updateStatus(`Failure mode set to: ${onFailureAction}`);
+    failureActionSelect.addEventListener("change", async (event) => {
+      onFailureAction = event.target.value;
+      await GM_setValue("flRecorderFailureAction", onFailureAction);
+      updateStatus(`Failure mode set to: ${onFailureAction}`);
     });
 
     // --- UI Show/Hide Events ---
-    ball.addEventListener('click', function(e) {
-        if (isDragging) return; // Don't trigger click when drag ends
-        panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
+    ball.addEventListener("click", function (e) {
+      if (isDragging) return; // Don't trigger click when drag ends
+      panel.style.display = panel.style.display === "none" ? "block" : "none";
     });
 
     // Optional: click outside panel to close
-    document.addEventListener('mousedown', (e) => {
-        if (
-            panel.style.display === 'block' &&
-            !panel.contains(e.target) &&
-            !ball.contains(e.target)
-        ) {
-            panel.style.display = 'none';
-        }
+    document.addEventListener("mousedown", (e) => {
+      if (
+        panel.style.display === "block" &&
+        !panel.contains(e.target) &&
+        !ball.contains(e.target)
+      ) {
+        panel.style.display = "none";
+      }
     });
 
     // --- CSS Styles (按钮内边距&方角) ---
@@ -912,7 +1289,7 @@ async function createUI() {
             padding: 2px 6px;
         }
     `);
-}
+  }
 
   function updateStatus(message) {
     if (statusDiv) {
