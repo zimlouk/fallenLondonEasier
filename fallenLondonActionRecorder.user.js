@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fallen London Action Recorder
 // @namespace    http://tampermonkey.net/
-// @version      0.8
+// @version      0.9
 // @description  Record, replay, and handle failures on Fallen London story pages.
 // @author       Xeo
 // @match        https://www.fallenlondon.com/*
@@ -108,46 +108,66 @@
     // 策略 1: 检查是否是选项 (这个逻辑是正确的，保持不变)
     const outfitOption = clickedEl.closest('[class*="-option"]');
     if (outfitOption && outfitOption.closest('[class*="-menu"]')) {
-        return {
-            type: 'outfit_option',
-            outfitName: getOriginalTextContent(outfitOption),
-            debug_element_html: getCleanedDebugHtml(outfitOption)
-        };
+      return {
+        type: "outfit_option",
+        outfitName: getOriginalTextContent(outfitOption),
+        debug_element_html: getCleanedDebugHtml(outfitOption),
+      };
     }
 
     // 策略 2: 检查是否是下拉框触发器 (全新的、更可靠的逻辑)
     // 从被点击的元素向上寻找一个共同的父容器，这个父容器必须同时包含 "Outfit" 标题和 react-select 容器
-    const commonParent = clickedEl.closest('.outfit-selector'); // 假设最外层有一个 'outfit-selector' 类，如果没有，则使用下一个备用方案
-    const title = document.querySelector('.outfit-selector__title'); // 先找到页面上唯一的 "Outfit" 标题
+    const commonParent = clickedEl.closest(".outfit-selector"); // 假设最外层有一个 'outfit-selector' 类，如果没有，则使用下一个备用方案
+    const title = document.querySelector(".outfit-selector__title"); // 先找到页面上唯一的 "Outfit" 标题
 
     if (title) {
-        // 找到标题的父元素，我们假设点击区域和标题在这个父元素下
-        const titleParent = title.parentElement; 
-        if (titleParent && titleParent.contains(clickedEl)) {
-             // 如果点击的元素在标题的父容器内，并且这个容器里也包含了react-select组件，
-             // 那么我们就可以确认这是一次对下拉框的点击。
-            if (titleParent.querySelector('[class*="css-"]')) { // react-select的类名通常以css-开头
-                 return {
-                    type: 'outfit_dropdown_trigger',
-                    debug_element_html: getCleanedDebugHtml(titleParent)
-                 };
-            }
+      // 找到标题的父元素，我们假设点击区域和标题在这个父元素下
+      const titleParent = title.parentElement;
+      if (titleParent && titleParent.contains(clickedEl)) {
+        // 如果点击的元素在标题的父容器内，并且这个容器里也包含了react-select组件，
+        // 那么我们就可以确认这是一次对下拉框的点击。
+        if (titleParent.querySelector('[class*="css-"]')) {
+          // react-select的类名通常以css-开头
+          return {
+            type: "outfit_dropdown_trigger",
+            debug_element_html: getCleanedDebugHtml(titleParent),
+          };
         }
+      }
     }
-    
+
     // 备用/原始逻辑：如果以上逻辑失效，我们回退到检查点击元素是否是react-select的控制部分
     const controlEl = clickedEl.closest('[class*="-control"]');
-    if(controlEl && controlEl.closest('div[style*="margin-right"]')?.querySelector('.outfit-selector__title')) {
-        return {
-            type: 'outfit_dropdown_trigger',
-            debug_element_html: getCleanedDebugHtml(controlEl)
-        };
+    if (
+      controlEl &&
+      controlEl
+        .closest('div[style*="margin-right"]')
+        ?.querySelector(".outfit-selector__title")
+    ) {
+      return {
+        type: "outfit_dropdown_trigger",
+        debug_element_html: getCleanedDebugHtml(controlEl),
+      };
     }
 
     const buttonEl = clickedEl.closest(
       'button, input[type="button"], input[type="submit"], [role="button"]'
     );
     if (!buttonEl) return null;
+
+    const exitButtonContainer = buttonEl.closest(
+      ".buttons--storylet-exit-options"
+    );
+    if (exitButtonContainer) {
+      // This is a storylet result page's "Onwards" or "Perhaps not" button.
+      // It's usually unique on the page, so we can create a very specific action type.
+      return {
+        type: "storylet_exit_button",
+        buttonText: getButtonText(buttonEl), // Record the text, e.g., "Onwards"
+        debug_element_html: getCleanedDebugHtml(buttonEl),
+      };
+    }
+
     const buttonText = getButtonText(buttonEl);
     if (!buttonText) return null;
     const cleanedDebugHtml = getCleanedDebugHtml(buttonEl);
@@ -255,74 +275,116 @@
 
   function findElement(identifier) {
     if (!identifier || !identifier.type) return null;
-    let elements = [];
     let targetElement = null;
 
+    // A list of selectors that define a self-contained "block" of story.
+    // This is the key to reliably associating a title with its button.
+    const BLOCK_SELECTORS = [
+      ".plot__result-container", // For the "Onwards" screen after assigning an agent
+      ".plot-container", // For agent assignment options
+      ".storylet", // For standard storylets
+      ".branch", // For standard storylet branches
+      ".media--root", // A general container for many story results
+    ];
+
     switch (identifier.type) {
+      // --- *** 新增：处理新的动作类型 *** ---
+      case "storylet_exit_button":
+        const exitContainer = document.querySelector(
+          ".buttons--storylet-exit-options"
+        );
+        if (exitContainer) {
+          targetElement = Array.from(
+            exitContainer.querySelectorAll("button")
+          ).find(
+            (btn) =>
+              getButtonText(btn) === identifier.buttonText &&
+              isElementVisible(btn)
+          );
+        }
+        break;
+
       case "branch_button":
         const branchContainer = document.querySelector(
           `div[data-branch-id="${identifier.branchId}"]`
         );
         if (branchContainer) {
-          if (identifier.titleHint) {
-            const headingEl = branchContainer.querySelector(
-              "h1, h2, .storylet__heading, .branch__title"
-            );
-            // Optional: title mismatch warning: if (headingEl && getOriginalTextContent(headingEl).substring(0, 150) !== identifier.titleHint) console.warn(...);
-          }
-          elements = Array.from(
+          targetElement = Array.from(
             branchContainer.querySelectorAll(
               'button, input[type="button"], input[type="submit"], [role="button"]'
             )
-          );
-          targetElement = elements.find(
+          ).find(
             (el) =>
               getButtonText(el) === identifier.buttonText &&
               isElementVisible(el)
           );
         }
         break;
+
       case "titled_block_button":
-        const allHeadings = Array.from(
-          document.querySelectorAll(
-            "h1, h2, .storylet-root__heading, .storylet__heading"
-          )
-        );
-        const titleHeading = allHeadings.find(
-          (h) =>
-            getOriginalTextContent(h).substring(0, 150) ===
-              identifier.titleHint && isElementVisible(h)
-        );
-        if (titleHeading) {
-          const commonParent = titleHeading.closest(".media--root, .storylet");
-          let blockContainer = null;
-          if (
-            commonParent &&
-            commonParent.parentElement &&
-            commonParent.parentElement.querySelector(
-              ".buttons--storylet-exit-options, .storylet__buttons"
+        // Strategy 1: The reliable block-based search (for nested layouts)
+        const allBlocks = document.querySelectorAll(BLOCK_SELECTORS.join(", "));
+        for (const block of allBlocks) {
+          const headingInBlock = Array.from(
+            block.querySelectorAll(
+              "h1, h2, .storylet-root__heading, .storylet__heading, .branch__title"
             )
-          ) {
-            blockContainer = commonParent.parentElement;
-          } else {
-            blockContainer = titleHeading.closest(
-              ".storylet, #main > .tab-content__bordered-container > div:first-child"
-            );
-          }
-          if (blockContainer) {
-            elements = Array.from(
-              blockContainer.querySelectorAll(
+          ).find(
+            (h) =>
+              getOriginalTextContent(h).substring(0, 150) ===
+                identifier.titleHint && isElementVisible(h)
+          );
+          if (headingInBlock) {
+            const buttonInBlock = Array.from(
+              block.querySelectorAll(
                 'button, input[type="button"], input[type="submit"], [role="button"]'
               )
+            ).find(
+              (btn) =>
+                getButtonText(btn) === identifier.buttonText &&
+                isElementVisible(btn)
             );
-            targetElement = elements.find(
-              (el) =>
-                getButtonText(el) === identifier.buttonText &&
-                isElementVisible(el)
-            );
+            if (buttonInBlock) {
+              targetElement = buttonInBlock;
+              break;
+            }
           }
         }
+
+        // Strategy 2: Fallback for "sibling" layouts (like the "Perhaps not" case)
+        // If the block-based search failed, it means the button is not in the same block as the title.
+        if (!targetElement) {
+          // We first confirm that the title exists on the page.
+          const titleExists = Array.from(
+            document.querySelectorAll(
+              "h1, h2, .storylet-root__heading, .storylet__heading, .branch__title"
+            )
+          ).some(
+            (h) =>
+              getOriginalTextContent(h).substring(0, 150) ===
+                identifier.titleHint && isElementVisible(h)
+          );
+
+          if (titleExists) {
+            // If the title exists, we now search for the button in a likely location for exit buttons.
+            // This is less specific, but it's a very good educated guess for this layout.
+            const exitButtonContainer = document.querySelector(
+              ".buttons--storylet-exit-options"
+            );
+            if (exitButtonContainer) {
+              targetElement = Array.from(
+                exitButtonContainer.querySelectorAll("button")
+              ).find(
+                (btn) =>
+                  getButtonText(btn) === identifier.buttonText &&
+                  isElementVisible(btn)
+              );
+            }
+          }
+        }
+        // --- *** END OF FIX *** ---
         break;
+
       case "id_button":
         targetElement = document.getElementById(identifier.id);
         if (
@@ -332,8 +394,11 @@
           /* Optional warning */
         }
         break;
+
       case "selector_button":
-        elements = Array.from(document.querySelectorAll(identifier.selector));
+        const elements = Array.from(
+          document.querySelectorAll(identifier.selector)
+        );
         targetElement = elements.find(
           (el) =>
             getButtonText(el) === identifier.buttonText && isElementVisible(el)
@@ -342,8 +407,9 @@
           !targetElement &&
           elements.length === 1 &&
           isElementVisible(elements[0])
-        )
+        ) {
           targetElement = elements[0];
+        }
         break;
     }
     return targetElement && isElementVisible(targetElement)
@@ -442,104 +508,29 @@
   // 在 findElement 和 isElementVisible 之后，但在 checkForFailure 之前，可以添加这个新函数
 
   async function executeChangeOutfit(action) {
-    updateStatus(
-      `[${playbackIndex + 1}/${
-        currentPlaybackActions.length
-      }] Changing outfit to: ${action.outfitName}`
-    );
-    console.log(
-      `[Playback] Starting 'change_outfit' action for: ${action.outfitName}`
-    );
+    updateStatus(`Executing: Change outfit to ${action.outfitName}`);
 
-    // 步骤 1: 找到并点击下拉框
-    let dropdownTrigger = null;
-    let startTime = Date.now();
-    updateStatus("Step 1/2: Looking for the outfit dropdown...");
-
-    while (Date.now() - startTime < ELEMENT_TIMEOUT && isPlaying) {
-      const titleSpan = Array.from(
-        document.querySelectorAll(".outfit-selector__title")
-      ).find(isElementVisible);
-      if (titleSpan) {
-        const container = titleSpan.closest('div[style*="margin-right"]');
-        if (container) {
-          dropdownTrigger = container.querySelector(".css-88n967-control");
-          if (!dropdownTrigger) {
-            dropdownTrigger = container.querySelector('[class*="-control"]');
-          }
-        }
-      }
-
-      if (dropdownTrigger && isElementVisible(dropdownTrigger)) break;
-      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
-    }
+    // 步骤 1: 找到并点击下拉框 (不再需要循环等待)
+    const titleSpan = Array.from(
+      document.querySelectorAll(".outfit-selector__title")
+    ).find(isElementVisible);
+    const container = titleSpan?.closest('div[style*="margin-right"]');
+    const dropdownTrigger =
+      container?.querySelector(".css-88n967-control") ||
+      container?.querySelector('[class*="-control"]');
 
     if (!dropdownTrigger) {
-      updateStatus(`Error: Outfit dropdown not found. Stopping.`);
       console.error(
-        "Could not find the outfit dropdown trigger for action:",
-        action
+        "executeChangeOutfit: Dropdown trigger vanished after being found. This should not happen."
       );
       return false;
     }
-
-    updateStatus("Step 1/2: Found dropdown. Force-clicking it now.");
-    console.log("[Playback] Found dropdown trigger. Element:", dropdownTrigger);
-    console.log("[Playback] Attempting a forced click...");
-
-    const originalOutline = dropdownTrigger.style.outline;
-    dropdownTrigger.style.outline = "3px solid #ff9800";
-    dropdownTrigger.scrollIntoView({ block: "center", behavior: "auto" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
     forceClick(dropdownTrigger);
+    await new Promise((resolve) => setTimeout(resolve, 300)); // 等待菜单弹出
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    dropdownTrigger.style.outline = originalOutline;
-
-    // --- *** 最终诊断验证逻辑 *** ---
-    let menu = null;
-    let menuAppeared = false;
-    const verificationStartTime = Date.now();
-    console.log("[Playback] Verifying if outfit menu has opened...");
-
-    while (Date.now() - verificationStartTime < 3000 && isPlaying) {
-      menu = document.querySelector(".css-o10qzr-menu"); // 使用你提供的精确类名
-      if (menu && isElementVisible(menu)) {
-        menuAppeared = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    if (!menuAppeared) {
-      updateStatus(`Error: Menu detected but deemed invisible. Stopping.`);
-      console.error(
-        "CRITICAL DIAGNOSIS: The menu element was found in the DOM, but isElementVisible() returned false."
-      );
-      // 如果我们找到了菜单元素，但它被判断为不可见，就把它打印出来！
-      if (menu) {
-        console.log("The problematic menu element is:", menu);
-        console.log("Computed Styles:", getComputedStyle(menu));
-        console.log("Bounding Rect:", menu.getBoundingClientRect());
-        console.log(
-          "Offset Width/Height:",
-          menu.offsetWidth,
-          menu.offsetHeight
-        );
-      } else {
-        console.log(
-          "The menu element was not even found in the DOM with selector '.css-o10qzr-menu'"
-        );
-      }
-      return false;
-    }
-    console.log("[Playback] Outfit menu successfully opened and detected.");
-
-    // 步骤 2: 找到并点击选项 (这部分逻辑不变)
+    // 步骤 2: 找到并点击选项 (需要循环，因为菜单是动态出现的)
     let optionElement = null;
-    let menuStartTime = Date.now();
-    updateStatus(`Step 2/2: Looking for option '${action.outfitName}'...`);
+    const menuStartTime = Date.now();
     while (Date.now() - menuStartTime < ELEMENT_TIMEOUT && isPlaying) {
       const options = Array.from(
         document.querySelectorAll('[class*="-option"]')
@@ -554,86 +545,13 @@
     }
 
     if (!optionElement) {
-      updateStatus(
-        `Error: Outfit option '${action.outfitName}' not found. Stopping.`
-      );
-      console.error("Could not find the outfit option for action:", action);
-      if (isElementVisible(dropdownTrigger)) forceClick(dropdownTrigger); // 尝试关闭
+      updateStatus(`Error: Outfit option '${action.outfitName}' not found.`);
+      if (isElementVisible(dropdownTrigger)) forceClick(dropdownTrigger); // Try to close
       return false;
     }
 
-    updateStatus(
-      `Step 2/2: Found option '${action.outfitName}'. Force-clicking it.`
-    );
-    console.log(
-      `[Playback] Found and force-clicking the outfit option: ${action.outfitName}`
-    );
-
-    const optionOutline = optionElement.style.outline;
-    optionElement.style.outline = "3px solid #4CAF50";
-
-    forceClick(optionElement); // 对选项也使用强制点击
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    optionElement.style.outline = optionOutline;
-    // --- *** 新增：等待页面刷新 *** ---
-    updateStatus("Outfit changed. Waiting for main content to refresh...");
-    console.log(
-      "[Playback] Waiting for main content refresh after changing outfit."
-    );
-
-    const mainContentContainer = document.querySelector(
-      ".tab-content__bordered-container"
-    );
-
-    if (!mainContentContainer) {
-      console.warn(
-        "Could not find .tab-content__bordered-container to monitor. Falling back to a fixed delay."
-      );
-      await new Promise((resolve) => setTimeout(resolve, 2500)); // 如果找不到容器，则固定等待2.5秒
-    } else {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          observer.disconnect();
-          console.warn(
-            "MutationObserver timed out after 10 seconds. The page might not have refreshed as expected."
-          );
-          resolve(); // 超时也继续执行，避免卡死
-        }, 10000); // 设置一个10秒的超时，防止无限等待
-
-        const observer = new MutationObserver((mutationsList, obs) => {
-          // 我们关心的是子节点的大规模变化，而不是小的属性变化
-          for (const mutation of mutationsList) {
-            if (
-              mutation.type === "childList" &&
-              (mutation.addedNodes.length > 0 ||
-                mutation.removedNodes.length > 0)
-            ) {
-              console.log(
-                "[Playback] Main content refresh detected by MutationObserver."
-              );
-              updateStatus("Content refreshed. Proceeding to next action.");
-              clearTimeout(timeout);
-              obs.disconnect(); // 停止监听
-              resolve();
-              return;
-            }
-          }
-        });
-
-        // 配置观察器：监听子节点的变化
-        const config = { childList: true, subtree: true };
-        observer.observe(mainContentContainer, config);
-      });
-    }
-
-    // 在智能等待之后，再加一个非常短的额外延迟，确保新内容渲染完成
-    await new Promise((resolve) =>
-      setTimeout(resolve, 300 + Math.random() * 200)
-    );
-
-    console.log("[Playback] 'change_outfit' action completed successfully.");
-    return true;
+    forceClick(optionElement);
+    return true; // 执行成功
   }
 
   function checkForFailure() {
@@ -874,109 +792,118 @@
         isPlaying = false;
         break;
       }
+
       const action = currentPlaybackActions[playbackIndex];
 
-      // --- 重构后的逻辑 ---
+      // --- 步骤 1: 根据动作类型，等待其目标元素准备就绪 ---
+      let isReady = false;
       if (action.type === "change_outfit") {
-        const success = await executeChangeOutfit(action);
-        if (success) {
-          playbackIndex++;
-          consecutiveFailuresOnStep = 0;
-        } else {
-          // 如果执行失败，停止播放
-          isPlaying = false;
-        }
-        continue; // 处理完后直接进入下一次循环
-      }
-      updateStatus(
-        `[${playbackIndex + 1}/${currentPlaybackActions.length}] Look: ${
-          action.buttonText || action.id
-        }`
-      );
-      let element = null;
-      const startTime = Date.now();
-      while (Date.now() - startTime < ELEMENT_TIMEOUT && isPlaying) {
-        element = findElement(action);
-        if (element) break;
-        await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+        isReady = await waitForOutfitDropdown();
+      } else {
+        isReady = await waitUntilElementIsReady(action);
       }
 
       if (!isPlaying) {
+        // Check if user stopped playback during the wait
         updateStatus("Playback stopped by user.");
         break;
       }
 
-      if (element) {
-        updateStatus(`Found. Clicking: ${action.buttonText || action.id}`);
-        const originalOutline = element.style.outline;
-        element.style.outline = "3px solid #4CAF50";
-        element.scrollIntoView({ behavior: "auto", block: "center" });
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        element.click();
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        element.style.outline = originalOutline;
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1200 + Math.random() * 600)
-        ); // Longer delay for page to fully update
+      if (!isReady) {
+        // Check for timeout from the wait function
+        isPlaying = false;
+        break;
+      }
 
-        if (checkForFailure()) {
-          consecutiveFailuresOnStep++;
-          updateStatus(
-            `Failure after action ${
-              playbackIndex + 1
-            }. Mode: ${onFailureAction}. Attempt ${consecutiveFailuresOnStep}.`
-          );
-          if (onFailureAction === "retry") {
-            const navigatedAway = await clickExitButtonOnFailureScreen();
-            if (navigatedAway) {
-              // playbackIndex is NOT incremented, so this action will be retried
-              updateStatus(
-                `Retrying action ${playbackIndex + 1}: ${action.buttonText}...`
-              );
-              await new Promise((resolve) => setTimeout(resolve, 500)); // Small delay before retry
-              continue; // Skip playbackIndex++ and restart loop for current action
-            } else {
-              updateStatus("Cannot navigate from failure. Stopping.");
-              isPlaying = false;
-              break;
-            }
-          } else {
-            // 'stop'
-            updateStatus("Stopping on failure.");
-            isPlaying = false;
-            break;
-          }
-        } else {
-          // No failure detected
-          consecutiveFailuresOnStep = 0; // Reset counter for this step
-          playbackIndex++;
-        }
+      // --- 步骤 2: 执行动作 ---
+      let executionSuccess = false;
+      if (action.type === "change_outfit") {
+        executionSuccess = await executeChangeOutfit(action);
       } else {
+        const element = findElement(action); // We know it exists because the wait function found it.
+        if (element) {
+          updateStatus(`Clicking: ${action.buttonText || action.id}`);
+          const originalOutline = element.style.outline;
+          element.style.outline = "3px solid #4CAF50";
+          element.scrollIntoView({ behavior: "auto", block: "center" });
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          element.click();
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          element.style.outline = originalOutline;
+          executionSuccess = true;
+        } else {
+          // This should rarely happen, as isReady should be true
+          updateStatus(
+            `Error: Element for action ${
+              playbackIndex + 1
+            } vanished after being found.`
+          );
+          console.error(
+            "Element vanished after wait function succeeded:",
+            action
+          );
+          executionSuccess = false;
+        }
+      }
+
+      if (!executionSuccess) {
         updateStatus(
-          `Error: Element for action ${playbackIndex + 1} not found. Stopping.`
-        );
-        console.error(
-          "Element not found:",
-          action,
-          "HTML:",
-          action.debug_element_html
+          `Execution failed for action ${playbackIndex + 1}. Stopping.`
         );
         isPlaying = false;
         break;
       }
-    }
 
-    if (isPlaying && playbackIndex === currentPlaybackActions.length)
+      // --- 步骤 3: 动作后处理 (等待结果和失败检查) ---
+      // A generic delay for the page to react to the click, allowing result/failure text to appear.
+      await new Promise((resolve) =>
+        setTimeout(resolve, 1200 + Math.random() * 600)
+      );
+
+      if (checkForFailure()) {
+        consecutiveFailuresOnStep++;
+        updateStatus(
+          `Failure after action ${
+            playbackIndex + 1
+          }. Mode: ${onFailureAction}. Attempt ${consecutiveFailuresOnStep}.`
+        );
+        if (onFailureAction === "retry") {
+          const navigatedAway = await clickExitButtonOnFailureScreen();
+          if (navigatedAway) {
+            updateStatus(`Retrying action ${playbackIndex + 1}...`);
+            // playbackIndex is NOT incremented, so the loop will retry the current action
+            continue;
+          } else {
+            updateStatus("Cannot navigate from failure. Stopping.");
+            isPlaying = false;
+          }
+        } else {
+          // 'stop'
+          updateStatus("Stopping on failure.");
+          isPlaying = false;
+        }
+      } else {
+        // Success, reset failure counter and move to the next action
+        consecutiveFailuresOnStep = 0;
+        playbackIndex++;
+      }
+    } // end of while loop
+
+    if (isPlaying && playbackIndex === currentPlaybackActions.length) {
       updateStatus("Playback finished.");
+    }
+    // Restore UI state
     isPlaying = false;
     playButton.textContent = "Start Playback";
     playButton.disabled = currentPlaybackActions.length === 0;
     recordButton.disabled = false;
     loadButton.disabled = false;
     failureActionSelect.disabled = false;
-    if (recordedActions.length > 0 && !playButton.disabled)
+    if (recordedActions.length > 0 && !playButton.disabled) {
       stopButton.disabled = true;
-    else if (!isRecording) stopButton.disabled = true;
+    } else if (!isRecording) {
+      stopButton.disabled = true;
+    }
   }
 
   function stopPlayback() {
@@ -1151,34 +1078,34 @@
     });
 
     // --- UI Show/Hide Events ---
-    ball.addEventListener('click', function(e) {
-        if (isDragging) return; // Don't trigger click when drag ends
-        // 如果面板是隐藏的，就显示它
-        if (panel.style.display === 'none') {
-            panel.style.display = 'block';
-        } 
-        // 如果面板是显示的，并且不是在录制或播放中，就隐藏它
-        else if (!isRecording && !isPlaying) {
-            panel.style.display = 'none';
-        }
+    ball.addEventListener("click", function (e) {
+      if (isDragging) return; // Don't trigger click when drag ends
+      // 如果面板是隐藏的，就显示它
+      if (panel.style.display === "none") {
+        panel.style.display = "block";
+      }
+      // 如果面板是显示的，并且不是在录制或播放中，就隐藏它
+      else if (!isRecording && !isPlaying) {
+        panel.style.display = "none";
+      }
     });
 
     // Optional: click outside panel to close
-    document.addEventListener('mousedown', (e) => {
-        // 条件1: 面板当前是显示的
-        // 条件2: 没有在录制
-        // 条件3: 没有在播放
-        // 条件4: 点击的目标不是面板本身或其子元素
-        // 条件5: 点击的目标不是悬浮球本身或其子元素
-        if (
-            panel.style.display === 'block' &&
-            !isRecording && 
-            !isPlaying &&
-            !panel.contains(e.target) &&
-            !ball.contains(e.target)
-        ) {
-            panel.style.display = 'none';
-        }
+    document.addEventListener("mousedown", (e) => {
+      // 条件1: 面板当前是显示的
+      // 条件2: 没有在录制
+      // 条件3: 没有在播放
+      // 条件4: 点击的目标不是面板本身或其子元素
+      // 条件5: 点击的目标不是悬浮球本身或其子元素
+      if (
+        panel.style.display === "block" &&
+        !isRecording &&
+        !isPlaying &&
+        !panel.contains(e.target) &&
+        !ball.contains(e.target)
+      ) {
+        panel.style.display = "none";
+      }
     });
 
     // --- CSS Styles (按钮内边距&方角) ---
@@ -1303,6 +1230,79 @@
             padding: 2px 6px;
         }
     `);
+  }
+
+  /**
+   * Waits until the element for a given action is found and visible using findElement.
+   * This is the generic wait function for standard button actions.
+   * @param {object} action - The action object for the step to wait for.
+   * @returns {Promise<boolean>} A promise that resolves to true if the element is found, false on timeout.
+   */
+  async function waitUntilElementIsReady(action) {
+    if (!action || !action.type) {
+      console.warn(
+        "[waitUntilElementIsReady] Invalid or no action provided. Skipping wait."
+      );
+      return true;
+    }
+
+    updateStatus(`Waiting for: ${action.buttonText || action.id}...`);
+    console.log(
+      `[waitUntilElementIsReady] Waiting for element for action:`,
+      action
+    );
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < ELEMENT_TIMEOUT && isPlaying) {
+      const element = findElement(action); // Use the generic findElement
+
+      if (element && isElementVisible(element)) {
+        console.log("[waitUntilElementIsReady] Element is ready.");
+        updateStatus("Element found. Proceeding...");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return true;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+    }
+
+    console.error(
+      `[waitUntilElementIsReady] Timed out waiting for element for action:`,
+      action
+    );
+    updateStatus(`Error: Timed out waiting for element. Stopping.`);
+    return false;
+  }
+
+  /**
+   * Waits specifically for the outfit dropdown trigger to be ready.
+   * @returns {Promise<boolean>}
+   */
+  async function waitForOutfitDropdown() {
+    updateStatus("Waiting for outfit dropdown...");
+    console.log(
+      "[waitForOutfitDropdown] Waiting for the outfit dropdown trigger to appear."
+    );
+    const startTime = Date.now();
+    while (Date.now() - startTime < ELEMENT_TIMEOUT && isPlaying) {
+      const titleSpan = Array.from(
+        document.querySelectorAll(".outfit-selector__title")
+      ).find(isElementVisible);
+      if (titleSpan) {
+        const container = titleSpan.closest('div[style*="margin-right"]');
+        const dropdownTrigger =
+          container?.querySelector(".css-88n967-control") ||
+          container?.querySelector('[class*="-control"]');
+        if (dropdownTrigger && isElementVisible(dropdownTrigger)) {
+          console.log("[waitForOutfitDropdown] Dropdown is ready.");
+          return true;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+    }
+    console.error("[waitForOutfitDropdown] Timed out.");
+    updateStatus("Error: Timed out waiting for outfit dropdown.");
+    return false;
   }
 
   function updateStatus(message) {
