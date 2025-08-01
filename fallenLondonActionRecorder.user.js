@@ -4,6 +4,8 @@
 // @version      0.9
 // @description  Record, replay, and handle failures on Fallen London story pages.
 // @author       Xeo
+// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonActionRecorder.user.js
+// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonActionRecorder.user.js
 // @match        https://www.fallenlondon.com/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -322,6 +324,73 @@
         break;
 
       case "titled_block_button":
+        // This is a complex case with varied layouts. We need a flexible strategy.
+        // First, find all possible titles on the page that match our hint.
+        const matchingHeadings = Array.from(
+          document.querySelectorAll("h1, h2, .storylet-root__heading, .storylet__heading, .branch__title")
+        ).filter(h =>
+          getOriginalTextContent(h).substring(0, 150) === identifier.titleHint && isElementVisible(h)
+        );
+
+        if (matchingHeadings.length === 0) {
+          // If no title matches, we can't proceed.
+          targetElement = null;
+          break;
+        }
+
+        // Now, for each matching title, find its most logical "component" container and search for the button within it.
+        // We try from the most specific to the most general container.
+        const CONTAINER_SELECTORS_IN_ORDER = [
+          '.working-agent', // <-- NEW! This is the key for your use case.
+          '#main > .tab-content__bordered-container > div:not([data-branch-id])', // For result pages
+          '.storylet', // Standard storylets
+          '.branch', // Standard branches
+          '.plot__result-container',
+          '.plot-container'
+        ];
+
+        for (const heading of matchingHeadings) {
+          for (const selector of CONTAINER_SELECTORS_IN_ORDER) {
+            const container = heading.closest(selector);
+            if (container) {
+              // We found a container. Search for the button *within this container*.
+              const buttonInContainer = Array.from(
+                container.querySelectorAll('button, input[type="button"], input[type="submit"], [role="button"]')
+              ).find(btn =>
+                getButtonText(btn) === identifier.buttonText && isElementVisible(btn)
+              );
+
+              if (buttonInContainer) {
+                // Success! We found the button in a logical container associated with the title.
+                targetElement = buttonInContainer;
+                // Break out of all loops
+                break;
+              }
+            }
+          }
+          if (targetElement) {
+            break; // Exit the heading loop as well
+          }
+        }
+
+        // --- Fallback Strategy ---
+        // If the above structured search fails, it could be a "sibling" layout where
+        // the button is not in a container with the title (e.g., global "Onwards" button).
+        if (!targetElement) {
+          // We already know the title exists from the 'matchingHeadings' check.
+          // So, we just look for the button in common "exit" locations.
+          const exitButtonContainers = document.querySelectorAll('.buttons--storylet-exit-options, .agent-footer-buttons');
+          for (const container of exitButtonContainers) {
+            const buttonInExitArea = Array.from(container.querySelectorAll('button'))
+              .find(btn => getButtonText(btn) === identifier.buttonText && isElementVisible(btn));
+            if (buttonInExitArea) {
+              targetElement = buttonInExitArea;
+              break;
+            }
+          }
+        }
+        break;
+
         // Strategy 1: The reliable block-based search (for nested layouts)
         const allBlocks = document.querySelectorAll(BLOCK_SELECTORS.join(", "));
         for (const block of allBlocks) {
@@ -332,7 +401,7 @@
           ).find(
             (h) =>
               getOriginalTextContent(h).substring(0, 150) ===
-                identifier.titleHint && isElementVisible(h)
+              identifier.titleHint && isElementVisible(h)
           );
           if (headingInBlock) {
             const buttonInBlock = Array.from(
@@ -362,7 +431,7 @@
           ).some(
             (h) =>
               getOriginalTextContent(h).substring(0, 150) ===
-                identifier.titleHint && isElementVisible(h)
+              identifier.titleHint && isElementVisible(h)
           );
 
           if (titleExists) {
@@ -677,8 +746,7 @@
     ) {
       recordedActions.push(identifier);
       updateStatus(
-        `Recorded: [${identifier.type}] ${
-          identifier.buttonText || identifier.id
+        `Recorded: [${identifier.type}] ${identifier.buttonText || identifier.id
         }`
       );
       console.log("Recorded Action:", identifier);
@@ -785,8 +853,7 @@
     while (playbackIndex < currentPlaybackActions.length && isPlaying) {
       if (consecutiveFailuresOnStep >= MAX_CONSECUTIVE_FAILURES) {
         updateStatus(
-          `Stopped: ${MAX_CONSECUTIVE_FAILURES} consecutive failures on step ${
-            playbackIndex + 1
+          `Stopped: ${MAX_CONSECUTIVE_FAILURES} consecutive failures on step ${playbackIndex + 1
           }.`
         );
         isPlaying = false;
@@ -834,8 +901,7 @@
         } else {
           // This should rarely happen, as isReady should be true
           updateStatus(
-            `Error: Element for action ${
-              playbackIndex + 1
+            `Error: Element for action ${playbackIndex + 1
             } vanished after being found.`
           );
           console.error(
@@ -863,8 +929,7 @@
       if (checkForFailure()) {
         consecutiveFailuresOnStep++;
         updateStatus(
-          `Failure after action ${
-            playbackIndex + 1
+          `Failure after action ${playbackIndex + 1
           }. Mode: ${onFailureAction}. Attempt ${consecutiveFailuresOnStep}.`
         );
         if (onFailureAction === "retry") {
@@ -927,7 +992,7 @@
       if (pos) {
         try {
           return JSON.parse(pos);
-        } catch {}
+        } catch { }
       }
       // 默认右下角
       return { right: 24, bottom: 24 };
