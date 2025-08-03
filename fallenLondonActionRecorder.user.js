@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fallen London Action Recorder
 // @namespace    http://tampermonkey.net/
-// @version      0.9
+// @version      0.91
 // @description  Record, replay, and handle failures on Fallen London story pages.
 // @author       Xeo
 // @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonActionRecorder.user.js
@@ -290,7 +290,6 @@
     ];
 
     switch (identifier.type) {
-      // --- *** 新增：处理新的动作类型 *** ---
       case "storylet_exit_button":
         const exitContainer = document.querySelector(
           ".buttons--storylet-exit-options"
@@ -324,36 +323,34 @@
         break;
 
       case "titled_block_button":
-        // This is a complex case with varied layouts. We need a flexible strategy.
-        // First, find all possible titles on the page that match our hint.
+        // 1. 找到所有匹配的标题
         const matchingHeadings = Array.from(
-          document.querySelectorAll("h1, h2, .storylet-root__heading, .storylet__heading, .branch__title")
+          document.querySelectorAll("h1, h2, .storylet-root__heading, .storylet__heading, .branch__title, .agent-header")
         ).filter(h =>
           getOriginalTextContent(h).substring(0, 150) === identifier.titleHint && isElementVisible(h)
         );
 
         if (matchingHeadings.length === 0) {
-          // If no title matches, we can't proceed.
           targetElement = null;
           break;
         }
 
-        // Now, for each matching title, find its most logical "component" container and search for the button within it.
-        // We try from the most specific to the most general container.
+        // 2. 定义容器选择器列表
         const CONTAINER_SELECTORS_IN_ORDER = [
-          '.working-agent', // <-- NEW! This is the key for your use case.
-          '#main > .tab-content__bordered-container > div:not([data-branch-id])', // For result pages
-          '.storylet', // Standard storylets
-          '.branch', // Standard branches
-          '.plot__result-container',
-          '.plot-container'
+          '.working-agent',
+          '.free-agent',         
+          '.plot-container',
+          '#main > .tab-content__bordered-container > div:not([data-branch-id])',
+          '.storylet',
+          '.branch',
+          '.plot__result-container'
         ];
 
+        // 3. 遍历标题，在其父容器中寻找按钮
         for (const heading of matchingHeadings) {
           for (const selector of CONTAINER_SELECTORS_IN_ORDER) {
             const container = heading.closest(selector);
             if (container) {
-              // We found a container. Search for the button *within this container*.
               const buttonInContainer = Array.from(
                 container.querySelectorAll('button, input[type="button"], input[type="submit"], [role="button"]')
               ).find(btn =>
@@ -361,97 +358,33 @@
               );
 
               if (buttonInContainer) {
-                // Success! We found the button in a logical container associated with the title.
                 targetElement = buttonInContainer;
-                // Break out of all loops
                 break;
               }
             }
           }
           if (targetElement) {
-            break; // Exit the heading loop as well
+            break;
           }
         }
 
-        // --- Fallback Strategy ---
-        // If the above structured search fails, it could be a "sibling" layout where
-        // the button is not in a container with the title (e.g., global "Onwards" button).
+        // --- 回退策略 (处理标题和按钮不在同一个容器的特殊情况) ---
         if (!targetElement) {
-          // We already know the title exists from the 'matchingHeadings' check.
-          // So, we just look for the button in common "exit" locations.
-          const exitButtonContainers = document.querySelectorAll('.buttons--storylet-exit-options, .agent-footer-buttons');
-          for (const container of exitButtonContainers) {
-            const buttonInExitArea = Array.from(container.querySelectorAll('button'))
-              .find(btn => getButtonText(btn) === identifier.buttonText && isElementVisible(btn));
-            if (buttonInExitArea) {
-              targetElement = buttonInExitArea;
-              break;
-            }
-          }
-        }
-        break;
-
-        // Strategy 1: The reliable block-based search (for nested layouts)
-        const allBlocks = document.querySelectorAll(BLOCK_SELECTORS.join(", "));
-        for (const block of allBlocks) {
-          const headingInBlock = Array.from(
-            block.querySelectorAll(
-              "h1, h2, .storylet-root__heading, .storylet__heading, .branch__title"
-            )
-          ).find(
-            (h) =>
-              getOriginalTextContent(h).substring(0, 150) ===
-              identifier.titleHint && isElementVisible(h)
-          );
-          if (headingInBlock) {
-            const buttonInBlock = Array.from(
-              block.querySelectorAll(
-                'button, input[type="button"], input[type="submit"], [role="button"]'
-              )
-            ).find(
-              (btn) =>
-                getButtonText(btn) === identifier.buttonText &&
-                isElementVisible(btn)
-            );
-            if (buttonInBlock) {
-              targetElement = buttonInBlock;
-              break;
-            }
-          }
-        }
-
-        // Strategy 2: Fallback for "sibling" layouts (like the "Perhaps not" case)
-        // If the block-based search failed, it means the button is not in the same block as the title.
-        if (!targetElement) {
-          // We first confirm that the title exists on the page.
-          const titleExists = Array.from(
-            document.querySelectorAll(
-              "h1, h2, .storylet-root__heading, .storylet__heading, .branch__title"
-            )
-          ).some(
-            (h) =>
-              getOriginalTextContent(h).substring(0, 150) ===
-              identifier.titleHint && isElementVisible(h)
-          );
-
+          // 确认标题存在
+          const titleExists = matchingHeadings.length > 0;
           if (titleExists) {
-            // If the title exists, we now search for the button in a likely location for exit buttons.
-            // This is less specific, but it's a very good educated guess for this layout.
-            const exitButtonContainer = document.querySelector(
-              ".buttons--storylet-exit-options"
-            );
-            if (exitButtonContainer) {
-              targetElement = Array.from(
-                exitButtonContainer.querySelectorAll("button")
-              ).find(
-                (btn) =>
-                  getButtonText(btn) === identifier.buttonText &&
-                  isElementVisible(btn)
-              );
+            // 在通用的按钮区域寻找
+            const exitButtonContainers = document.querySelectorAll('.buttons--storylet-exit-options, .agent-footer-buttons');
+            for (const container of exitButtonContainers) {
+              const buttonInExitArea = Array.from(container.querySelectorAll('button'))
+                .find(btn => getButtonText(btn) === identifier.buttonText && isElementVisible(btn));
+              if (buttonInExitArea) {
+                targetElement = buttonInExitArea;
+                break;
+              }
             }
           }
         }
-        // --- *** END OF FIX *** ---
         break;
 
       case "id_button":
