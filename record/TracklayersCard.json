@@ -1,0 +1,108 @@
+{
+  "342260": {
+    "action": "play",
+    "description": "Revisit the Familiar Streets (Play this card)",
+    "branch": {
+      "type": "titled_block_button",
+      "titleHint": "Notice the interactions of the populace",
+      "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+
+  "358476": {
+    "action": "play",
+    "description": "Intervene in Civic Affairs",
+    "outfit": "troubledWater",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Settle local disputes",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+
+  "356941":{
+    "action":"discard",
+    "description": "Imports and Exports"
+  },
+
+  "360374":{
+    "action": "play",
+    "description": "Uncommissioned Murals",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Ask your wife's opinion",
+        "buttonText": "Go"
+        },
+    "exitButtonText": "Onwards"
+    },
+
+    "358836":{
+    "action": "play",
+    "description": "Home Sweet Home",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Take the largest townhouse you can find",
+        "buttonText": "Go"
+        },
+    "exitButtonText": "Onwards"
+    },
+
+  "357385": {
+    "action": "play",
+    "description": "Growing the Population",
+    "outfit": "Chess",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Guide newcomers to where they might best fit in",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+
+  "356805": {
+    "action": "play",
+    "description": "Participate in construction efforts",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Build a grain silo",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+
+  "358887": {
+    "action": "play",
+    "description": "Compromise",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Grow some creatures, smash some lamps, share the wealth around",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+
+  "360267": {
+    "action": "play",
+    "description": "Officially Non-Criminal",
+    "outfit": "Watchful",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Learn the new thieves' cant",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+
+  "356740": {
+    "action": "play",
+    "description": "Near Balmoral",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Do you hear something?",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  }
+}
