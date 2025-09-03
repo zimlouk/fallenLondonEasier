@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Fallen London Card Automator
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      1.0
 // @description  Automates playing or discarding opportunity cards based on a loaded JSON configuration file.
 // @author       Xeo (with modifications)
-// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonCardAutomator_json.user.js
-// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonCardAutomator_json.user.js
+// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonCardAutomator.user.js
+// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonCardAutomator.user.js
 // @match        https://www.fallenlondon.com/*
 // @grant        GM_addStyle
 // @grant        unsafeWindow
@@ -27,7 +27,7 @@
     let playButton, loadButton, fileInput;
 
 
-    // --- Reusable Helper Functions (from original script) ---
+    // --- Reusable Helper Functions ---
 
     function getOriginalTextContent(element) {
         if (!element) return "";
@@ -65,88 +65,106 @@
 
     async function waitUntil(conditionFn, timeout, pollInterval) {
         const startTime = Date.now();
-        while (Date.now() - startTime < timeout) {
-            if (conditionFn()) return true;
+        while (Date.now() - startTime < timeout && isPlaying) {
+            const result = conditionFn();
+            if (result) return result; // Return the truthy value (the element)
             await new Promise(resolve => setTimeout(resolve, pollInterval));
-        }
-        return false;
-    }
-
-    async function waitUntilElementIsReady(identifier) {
-        updateStatus(`Waiting for: ${identifier.titleHint}...`);
-        const found = await waitUntil(() => findElement(identifier), ELEMENT_TIMEOUT, POLLING_INTERVAL);
-        if (!found) {
-            updateStatus(`Error: Timed out waiting for element for "${identifier.titleHint}".`);
-            console.error("Timed out waiting for:", identifier);
-        }
-        return found;
-    }
-
-    // --- Core Logic Functions (modified for this script) ---
-
-    function findElement(identifier) {
-        // This is a simplified version focusing only on the 'titled_block_button' type needed for storylets.
-        if (identifier.type !== "titled_block_button") return null;
-
-        const matchingHeadings = Array.from(document.querySelectorAll("h1, h2, .storylet-root__heading, .storylet__heading"))
-            .filter(h => getOriginalTextContent(h).includes(identifier.titleHint) && isElementVisible(h));
-
-        for (const heading of matchingHeadings) {
-            const container = heading.closest('.storylet, .media--root, .branch');
-            if (container) {
-                const button = Array.from(container.querySelectorAll('button, [role="button"]'))
-                    .find(btn => getButtonText(btn) === identifier.buttonText && isElementVisible(btn));
-                if (button) return button;
-            }
         }
         return null;
     }
 
-    async function executeChangeOutfit(outfitName) {
-        updateStatus(`Changing outfit to ${outfitName}`);
+    async function waitUntilElementIsReady(identifier) {
+        const type_desc = identifier.type === 'storylet_exit_button' ? 'exit button' : 'branch';
+        updateStatus(`Waiting for ${type_desc}: ${identifier.buttonText || identifier.titleHint}...`);
 
-        // 1. Find and click dropdown trigger
-        const dropdownTrigger = await (async () => {
-            let trigger = null;
-            await waitUntil(() => {
-                const titleSpan = Array.from(document.querySelectorAll(".outfit-selector__title")).find(isElementVisible);
-                if (titleSpan) {
-                    const container = titleSpan.closest('div[style*="margin-right"]');
-                    trigger = container?.querySelector('[class*="-control"]');
-                    return trigger && isElementVisible(trigger);
+        const element = await waitUntil(() => findElement(identifier), ELEMENT_TIMEOUT, POLLING_INTERVAL);
+
+        if (!element) {
+            updateStatus(`Error: Timed out waiting for element.`);
+            console.error("Timed out waiting for:", identifier);
+        }
+        return element;
+    }
+
+    // --- Core Logic Functions ---
+
+    function findElement(identifier) {
+        if (!identifier || !identifier.type) return null;
+        
+        switch (identifier.type) {
+            case "titled_block_button":
+                const matchingHeadings = Array.from(document.querySelectorAll("h1, h2, .storylet-root__heading, .storylet__heading"))
+                    .filter(h => getOriginalTextContent(h).includes(identifier.titleHint) && isElementVisible(h));
+
+                for (const heading of matchingHeadings) {
+                    const container = heading.closest('.storylet, .media--root, .branch');
+                    if (container) {
+                        const button = Array.from(container.querySelectorAll('button, [role="button"]'))
+                            .find(btn => getButtonText(btn) === identifier.buttonText && isElementVisible(btn));
+                        if (button) return button;
+                    }
                 }
-                return false;
-            }, ELEMENT_TIMEOUT, POLLING_INTERVAL);
-            return trigger;
-        })();
+                break;
+            
+            case "storylet_exit_button":
+                const exitContainer = document.querySelector(".buttons--storylet-exit-options");
+                if (exitContainer) {
+                    return Array.from(exitContainer.querySelectorAll("button"))
+                                .find(btn => getButtonText(btn) === identifier.buttonText && isElementVisible(btn));
+                }
+                break;
+        }
+        return null;
+    }
+
+    // *** REPLACED WITH THE USER-PROVIDED WORKING FUNCTION ***
+    async function executeChangeOutfit(action) {
+        updateStatus(`Executing: Change outfit to ${action.outfitName}`);
+
+        // Step 1: Find and click the dropdown
+        const titleSpan = Array.from(
+          document.querySelectorAll(".outfit-selector__title")
+        ).find(isElementVisible);
+        const container = titleSpan?.closest('div[style*="margin-right"]');
+        const dropdownTrigger =
+          container?.querySelector(".css-88n967-control") ||
+          container?.querySelector('[class*="-control"]');
 
         if (!dropdownTrigger) {
-            updateStatus("Error: Could not find outfit dropdown.");
-            return false;
+          console.error(
+            "executeChangeOutfit: Dropdown trigger could not be found."
+          );
+          updateStatus("Error: Could not find outfit dropdown trigger.");
+          return false;
         }
         forceClick(dropdownTrigger);
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise((resolve) => setTimeout(resolve, 300)); // Wait for menu to appear
 
-        // 2. Find and click option
-        const optionElement = await (async () => {
-            let option = null;
-            await waitUntil(() => {
-                option = Array.from(document.querySelectorAll('[class*="-option"]'))
-                              .find(opt => getOriginalTextContent(opt) === outfitName && isElementVisible(opt));
-                return !!option;
-            }, ELEMENT_TIMEOUT, POLLING_INTERVAL);
-            return option;
-        })();
+        // Step 2: Find and click the option
+        let optionElement = null;
+        const menuStartTime = Date.now();
+        while (Date.now() - menuStartTime < ELEMENT_TIMEOUT && isPlaying) {
+          const options = Array.from(
+            document.querySelectorAll('[class*="-option"]')
+          );
+          optionElement = options.find(
+            (opt) =>
+              getOriginalTextContent(opt) === action.outfitName &&
+              isElementVisible(opt)
+          );
+          if (optionElement) break;
+          await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL));
+        }
 
         if (!optionElement) {
-            updateStatus(`Error: Outfit option '${outfitName}' not found.`);
-            forceClick(dropdownTrigger); // Try to close dropdown
-            return false;
+          updateStatus(`Error: Outfit option '${action.outfitName}' not found.`);
+          if (isElementVisible(dropdownTrigger)) forceClick(dropdownTrigger); // Try to close
+          return false;
         }
 
         forceClick(optionElement);
         await new Promise(r => setTimeout(r, 1000)); // Wait for outfit to apply
-        return true;
+        return true; // Success
     }
 
 
@@ -163,7 +181,6 @@
                     continue;
                 }
 
-                // 1. Scan cards in hand for an actionable one
                 const cards = document.querySelectorAll('.hand__card-container[data-event-id]');
                 let cardToProcess = null;
                 let actionConfig = null;
@@ -173,56 +190,63 @@
                     if (scriptConfig[eventId]) {
                         cardToProcess = card;
                         actionConfig = scriptConfig[eventId];
-                        break; // Found the first actionable card, stop scanning
+                        break;
                     }
                 }
 
-                // 2. If an actionable card was found, process it
                 if (cardToProcess && actionConfig) {
-                    if (actionConfig.action === 'play') {
-                        updateStatus(`Playing: ${actionConfig.description}`);
-                        const cardButton = cardToProcess.querySelector('[role="button"]');
-                        forceClick(cardButton);
-                        await new Promise(r => setTimeout(r, ACTION_TRANSITION_DELAY)); // Wait for storylet to load
+                    // Normalize action to lowercase to avoid config errors
+                    const action = (actionConfig.action || '').toLowerCase();
 
+                    if (action === 'play') {
+                        updateStatus(`Playing: ${actionConfig.description}`);
+                        forceClick(cardToProcess.querySelector('[role="button"]'));
+                        await new Promise(r => setTimeout(r, ACTION_TRANSITION_DELAY));
                         if (!isPlaying) return;
 
-                        // Change outfit if specified
                         if (actionConfig.outfit) {
-                            const success = await executeChangeOutfit(actionConfig.outfit);
-                            if (!success) {
-                                updateStatus("Stopping due to outfit change failure.");
-                                stopScript();
+                            // *** CORRECTED FUNCTION CALL TO PASS AN OBJECT ***
+                            if (!await executeChangeOutfit({ outfitName: actionConfig.outfit })) {
+                                stopScript("Outfit change failed.");
                                 return;
                             }
                         }
 
-                        // Click the specified branch button
-                        const branchReady = await waitUntilElementIsReady(actionConfig.branch);
-                        if (branchReady) {
-                            const branchButton = findElement(actionConfig.branch);
+                        const branchButton = await waitUntilElementIsReady(actionConfig.branch);
+                        if (branchButton) {
                             updateStatus(`Clicking branch: ${actionConfig.branch.buttonText}`);
                             forceClick(branchButton);
-                            await new Promise(r => setTimeout(r, ACTION_TRANSITION_DELAY)); // Wait for result screen
+                            await new Promise(r => setTimeout(r, ACTION_TRANSITION_DELAY));
+                            if (!isPlaying) return;
+
+                            if (actionConfig.exitButtonText) {
+                                const exitIdentifier = { type: "storylet_exit_button", buttonText: actionConfig.exitButtonText };
+                                const exitButton = await waitUntilElementIsReady(exitIdentifier);
+                                if (exitButton) {
+                                    updateStatus(`Clicking exit: ${actionConfig.exitButtonText}`);
+                                    forceClick(exitButton);
+                                    await new Promise(r => setTimeout(r, ACTION_TRANSITION_DELAY));
+                                } else {
+                                    stopScript("Could not find exit button.");
+                                    return;
+                                }
+                            }
                         } else {
-                            updateStatus("Stopping: Could not find branch button.");
-                            stopScript();
+                            stopScript("Could not find branch button.");
                             return;
                         }
 
-                    } else if (actionConfig.action === 'discard') {
+                    } else if (action === 'discard') {
                         updateStatus(`Discarding: ${actionConfig.description}`);
-                        const discardButton = cardToProcess.querySelector('.hand__discard-button');
+                        const discardButton = cardToProcess.querySelector('.card__discard-button');
                         if (discardButton) {
                             forceClick(discardButton);
                             await new Promise(r => setTimeout(r, DECK_DRAW_DELAY));
                         } else {
                             updateStatus(`Error: No discard button for ${actionConfig.description}`);
-                            await new Promise(r => setTimeout(r, 2000)); // Wait before retry
+                            await new Promise(r => setTimeout(r, 2000));
                         }
                     }
-
-                // 3. If no actionable cards, try to draw a new one
                 } else {
                     const deck = document.querySelector('button.deck');
                     if (deck && isElementVisible(deck) && !deck.disabled) {
@@ -231,15 +255,14 @@
                         await new Promise(r => setTimeout(r, DECK_DRAW_DELAY));
                     } else {
                         updateStatus("No actionable cards; cannot draw. Waiting...");
-                        await new Promise(r => setTimeout(r, 10000)); // Wait a bit longer
+                        await new Promise(r => setTimeout(r, 10000));
                     }
                 }
             } catch (error) {
                 console.error("An error occurred in the main loop:", error);
-                updateStatus("Error occurred. Stopping script.");
-                stopScript();
+                stopScript("Error occurred. Check console.");
             }
-             await new Promise(r => setTimeout(r, 500)); // Brief pause between cycles
+             await new Promise(r => setTimeout(r, 500));
         }
     }
 
@@ -270,7 +293,7 @@
             }
         };
         reader.readAsText(file);
-        fileInput.value = ''; // Allow re-loading the same file
+        fileInput.value = '';
     }
 
     function startScript() {
@@ -286,12 +309,12 @@
         mainLoop();
     }
 
-    function stopScript() {
-        if (!isPlaying) return;
+    function stopScript(reason = "Script stopped.") {
+        if (!isPlaying && playButton.textContent === "Start") return; // Already stopped
         isPlaying = false;
         playButton.textContent = "Start";
         loadButton.disabled = false;
-        updateStatus("Script stopped. Ready to start.");
+        updateStatus(reason);
     }
 
     function createUI() {
@@ -322,7 +345,7 @@
         fileInput.addEventListener('change', handleConfigFileLoad);
 
         playButton.addEventListener('click', () => {
-            isPlaying ? stopScript() : startScript();
+            isPlaying ? stopScript("Stopped by user.") : startScript();
         });
 
         ball.addEventListener('click', () => {
@@ -370,7 +393,7 @@
 
     // --- Initialization ---
     function init() {
-        if (document.querySelector("#fl-automator-panel")) return; // Already initialized
+        if (document.querySelector("#fl-automator-panel")) return;
         const observer = new MutationObserver(() => {
             if (document.querySelector("#main")) {
                 observer.disconnect();
