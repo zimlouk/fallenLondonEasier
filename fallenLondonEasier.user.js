@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Fallen London Easier
 // @namespace    https://github.com/zimlouk/fallenLondonEasier
-// @version      2.3
+// @version      2.5
 // @description  Adds helper buttons and automation to Fallen London pages.
 // @description:zh-CN 为 Fallen London 页面添加快捷按钮并自动化操作
 // @author       xeoplise
@@ -472,21 +472,29 @@
 
     // --- Nested Helper Functions (within startScript scope) ---
 
-    /** Finds the "Try again" button (Button 2). */
-    function findButton2() {
-        // Select potential candidates more broadly first
+    // MODIFIED: This function now searches for buttons by priority.
+    /** Finds the continuation button by priority: first "Try again", then "Onwards". */
+    function findContinuationButton() {
         const candidateButtons = document.querySelectorAll(".button.button--primary");
-        let button2 = null;
-        const targetText = "try again"; // Text to look for (case-insensitive)
+        // Priority list: The script will search for the first item before moving to the second.
+        const priorityTexts = ["try again", "onwards"];
 
-        candidateButtons.forEach(button => {
-            // Check text content, converting to lowercase for case-insensitive comparison
-            if (button.textContent.toLowerCase().includes(targetText)) {
-                button2 = button;
-                // Optional: Could add checks for specific classes if "Try again" appears elsewhere
+        // Loop through our list of priority texts.
+        for (const targetText of priorityTexts) {
+            // For each priority level, search through all available buttons on the page.
+            const foundButton = Array.from(candidateButtons).find(button =>
+                button.textContent.toLowerCase().includes(targetText)
+            );
+
+            // If a button matching the current priority text is found,
+            // return it immediately without checking for lower-priority buttons.
+            if (foundButton) {
+                return foundButton;
             }
-        });
-        return button2; // Return the found button or null
+        }
+
+        // If the loop finishes without finding any of the targeted buttons, return null.
+        return null;
     }
 
     /** Checks if the target quality value has been reached after an action. */
@@ -576,10 +584,10 @@
         }
     }
 
-    /** Step 2: Waits for Button 2 ("Try again"), checks quality, and clicks Button 2 if applicable. */
+    /** Step 2: Waits for a continuation button, checks quality, and clicks if applicable. */
     function findAndCheckQualityBeforeClickButton2() {
         if (!scriptRunning) return;
-        console.log("[Step 2] Looking for results and/or Button2 ('Try again')...");
+        console.log("[Step 2] Looking for results and/or continuation button...");
 
         let findButton2Attempts = 0;
 
@@ -602,14 +610,13 @@
                 return;
             }
 
-            // If quality target not met (or not checked), look for Button 2
-            const button2 = findButton2();
-            if (button2) {
-                // Found Button 2
+            const continuationButton = findContinuationButton();
+            if (continuationButton) {
+                // Found the continuation button
                 clearInterval(findButton2IntervalId); // Stop searching
                 findButton2IntervalId = null;
-                console.log("[Step 2b] Found Button2 ('Try again'). Clicking it.");
-                button2.click();
+                console.log(`[Step 2b] Found continuation button ('${continuationButton.textContent.trim()}'). Clicking it.`);
+                continuationButton.click();
 
                 // Schedule the next step: wait for Button 1 to reappear/become active
                 clearTimeout(nextClickTimeoutId); // Clear any previous timer
@@ -618,16 +625,16 @@
                     DELAY_BEFORE_WAITING_FOR_B1     // Wait a short time before starting the wait
                 );
             } else {
-                // Button 2 not found yet, increment attempt counter
+                // Button not found yet, increment attempt counter
                 findButton2Attempts++;
-                console.log(` -> Waiting for Button2... (Attempt ${findButton2Attempts}/${FIND_B2_MAX_ATTEMPTS})`);
+                console.log(` -> Waiting for continuation button... (Attempt ${findButton2Attempts}/${FIND_B2_MAX_ATTEMPTS})`);
 
                 // Check if we've exceeded the maximum attempts
                 if (findButton2Attempts >= FIND_B2_MAX_ATTEMPTS) {
                     clearInterval(findButton2IntervalId); // Stop searching
                     findButton2IntervalId = null;
-                    alert("Error: Timed out waiting for Button2 ('Try again'). Script terminated.");
-                    console.error("[Error] Timeout waiting for Button2.");
+                    alert("Error: Timed out waiting for 'Try again' or 'Onwards' button. Script terminated.");
+                    console.error("[Error] Timeout waiting for continuation button.");
                     stopScript(); // Stop the script due to timeout
                 }
             }
@@ -775,7 +782,7 @@
   // --- Initial Script Execution ---
   // This runs when the userscript loads on a matching page.
 
-  console.log("FL Helper: Initializing (v2.3)...");
+  console.log("FL Helper: Initializing (v2.5)...");
 
   // Create and add the fixed UI elements
   addMainToggleButton();
