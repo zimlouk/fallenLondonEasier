@@ -20,7 +20,7 @@ Tampermonkey用的脚本
 
 欢迎捉虫 提点子
 
-# fallenLondonItemTracker
+# fallenLondonItemTracker (目前应该不可用)
 This is a script for Tampermonkey.
 
 "My pockets are just too full."
