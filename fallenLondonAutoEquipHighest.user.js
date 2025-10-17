@@ -132,11 +132,11 @@
                 if (!equipButton || !equipButton.textContent.includes('Equip Highest')) {
                     throw new Error('找不到 "Equip Highest" 按钮');
                 }
-                simulateFullClick(equipButton); // <--- 对按钮也使用完整点击，更保险
+                simulateFullClick(equipButton);
 
                 await delay(500);
 
-                // 5. 点击 "Story" 链接返回主页 (标准 .click() 最可靠)
+                // 5. 点击 "Story" 链接返回主页
                 console.log('步骤 5: 点击 "Story" 返回主页');
                 const storyLink = await waitForElement('a.cursor-pointer[href="/"]');
                 storyLink.click();
