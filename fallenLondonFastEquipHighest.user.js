@@ -6,6 +6,8 @@
 // @description:zh-CN 为Fallen London侧边栏添加智能按钮，通过模拟UI点击快速换装
 // @author       Xeo
 // @match        https://www.fallenlondon.com/*
+// @updateURL    https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonFastEquipHighest.user.js
+// @downloadURL  https://raw.githubusercontent.com/zimlouk/fallenLondonEasier/main/fallenLondonFastEquipHighest.user.js
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
