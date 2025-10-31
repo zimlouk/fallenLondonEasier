@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name         Fallen London - Fast Equip via UI
 // @namespace    http://tampermonkey.net/
-// @version      0.8
-// @description  Adds a button to specific qualities to quickly equip the highest bonus gear by automating UI clicks.
-// @description:zh-CN 通过模拟UI点击，为Fallen London侧边栏的特定属性添加按钮，实现全自动快速换装。
+// @version      0.9
+// @description  Adds an intelligent button to specific qualities to quickly equip gear
 // @author       Xeo
 // @match        https://www.fallenlondon.com/*
 // @grant        none
@@ -36,7 +35,7 @@
                     timeWaited += intervalTime;
                     if (timeWaited >= timeout) {
                         clearInterval(interval);
-                        reject(new Error(`等待元素 "${selector}" 超时`));
+                        reject(new Error(`等待元素 "${selector}" 出现超时`));
                     }
                 }
             }, intervalTime);
@@ -44,24 +43,43 @@
     }
 
     /**
-     * @param {Element} element - 要点击的元素
+     * [新增] 等待指定元素从DOM中消失
+     * @param {string} selector - CSS选择器
+     * @param {HTMLElement} parent - 父元素，默认为 document
+     * @param {number} timeout - 超时时间 (毫秒)
+     * @returns {Promise<void>} - 元素消失后 resolve
      */
+    function waitForElementToDisappear(selector, parent = document, timeout = 15000) {
+        return new Promise((resolve, reject) => {
+            const intervalTime = 100;
+            let timeWaited = 0;
+            const interval = setInterval(() => {
+                const element = parent.querySelector(selector);
+                if (!element) {
+                    clearInterval(interval);
+                    resolve();
+                } else {
+                    timeWaited += intervalTime;
+                    if (timeWaited >= timeout) {
+                        clearInterval(interval);
+                        reject(new Error(`等待元素 "${selector}" 消失超时`));
+                    }
+                }
+            }, intervalTime);
+        });
+    }
+
+
     function simulateFullClick(element) {
         if (!element) throw new Error("尝试点击一个不存在的元素");
-
         const dispatch = (eventName) => {
-            const event = new MouseEvent(eventName, {
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
+            const event = new MouseEvent(eventName, { bubbles: true, cancelable: true, view: window });
             element.dispatchEvent(event);
         };
-
-        dispatch('mouseover'); // 鼠标悬浮
-        dispatch('mousedown'); // 按下
-        dispatch('mouseup');   // 抬起
-        dispatch('click');     // 完成点击
+        dispatch('mouseover');
+        dispatch('mousedown');
+        dispatch('mouseup');
+        dispatch('click');
     }
 
     const delay = ms => new Promise(res => setTimeout(res, ms));
@@ -98,43 +116,65 @@
                 if (!possessionsLink) throw new Error('找不到 "Possessions" 链接');
                 possessionsLink.click();
 
-                // 2. 定位并点击正确的下拉菜单
-                console.log('步骤 2: 等待并定位正确的下拉菜单');
-                await waitForElement('div.css-13ab8kc-container');
+                // 等待 possessions 页面加载
+                await waitForElement('span.heading.heading--3');
+
+                // 2. 定位 "items" 容器
                 const containers = document.querySelectorAll('div[style^="align-items: baseline"]');
                 const itemsContainer = Array.from(containers).find(c => c.querySelector('span.heading.heading--3')?.textContent.trim() === 'items');
                 if (!itemsContainer) throw new Error('找不到 "items" 标题的容器');
 
-                const categoryDropdown = itemsContainer.querySelector('div.css-f92gjm-control');
-                if (!categoryDropdown) throw new Error('在"items"容器中找不到下拉菜单');
+                // --- 检查下拉菜单当前值 ---
+                const currentValueDiv = itemsContainer.querySelector('.css-gj4dr3-singleValue');
+                if (!currentValueDiv) throw new Error('找不到下拉菜单的当前值显示元素');
+                const currentValueText = currentValueDiv.textContent.trim();
 
-                console.log('步骤 2.1: 点击下拉菜单');
-                // 打开下拉菜单通常只需要一个简单的 mousedown
-                const openEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
-                categoryDropdown.dispatchEvent(openEvent);
-                await delay(100);
+                if (currentValueText === qualityName) {
+                    console.log(`优化：下拉菜单已是 "${qualityName}"，跳过选择步骤。`);
+                } else {
+                    console.log(`下拉菜单当前值为 "${currentValueText}"，需要更改为 "${qualityName}"。`);
 
-                // 3. 在下拉菜单中找到并【完整点击】对应的选项
-                console.log(`步骤 3: 寻找并点击 "${qualityName}" 选项`);
-                const listBox = await waitForElement('div[role="listbox"]');
-                const options = listBox.querySelectorAll('div[role="option"]');
-                const targetOption = Array.from(options).find(opt => opt.textContent.trim() === qualityName);
-                if (!targetOption) {
-                    document.querySelector('a.cursor-pointer[href="/"]')?.click();
-                    throw new Error(`在下拉菜单中找不到选项 "${qualityName}"`);
+                    // 2.1 打开下拉菜单
+                    const categoryDropdown = itemsContainer.querySelector('div.css-f92gjm-control');
+                    if (!categoryDropdown) throw new Error('在"items"容器中找不到下拉菜单');
+                    const openEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
+                    categoryDropdown.dispatchEvent(openEvent);
+                    await delay(100);
+
+                    // 3. 在下拉菜单中找到并点击选项
+                    const listBox = await waitForElement('div[role="listbox"]');
+                    const options = listBox.querySelectorAll('div[role="option"]');
+                    const targetOption = Array.from(options).find(opt => opt.textContent.trim() === qualityName);
+                    if (!targetOption) {
+                        document.querySelector('a.cursor-pointer[href="/"]')?.click();
+                        throw new Error(`在下拉菜单中找不到选项 "${qualityName}"`);
+                    }
+                    simulateFullClick(targetOption);
                 }
-                simulateFullClick(targetOption);
 
                 // 4. 等待并点击 "Equip Highest" 按钮
                 console.log('步骤 4: 等待并点击 "Equip Highest"');
-                await delay(200); // 等待选项点击后页面状态更新
+                await delay(200); // 等待页面状态更新
                 const equipButton = await waitForElement('button.button--primary', document, 10000);
                 if (!equipButton || !equipButton.textContent.includes('Equip Highest')) {
                     throw new Error('找不到 "Equip Highest" 按钮');
                 }
                 simulateFullClick(equipButton);
 
-                await delay(500);
+                // 4.5 等待换装完成
+                console.log('步骤 4.5: 等待换装完成...');
+                const changingSlotSelector = '.equipment-slot--is-changing';
+                try {
+                    // 等待换装动画开始（即出现 is-changing 状态），超时2秒
+                    await waitForElement(changingSlotSelector, document, 2000);
+                    console.log('检测到换装状态，正在等待完成...');
+                } catch (e) {
+                    // 如果2秒内没等到，可能换装瞬间完成或没有可换的装备。打印警告但继续执行。
+                    console.warn('未检测到 "is-changing" 状态，可能换装极快或未发生。继续执行...');
+                }
+                // 等待 is-changing 状态消失
+                await waitForElementToDisappear(changingSlotSelector, document, 15000);
+                console.log('换装完成！');
 
                 // 5. 点击 "Story" 链接返回主页
                 console.log('步骤 5: 点击 "Story" 返回主页');
