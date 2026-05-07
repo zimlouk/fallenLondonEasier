@@ -104,5 +104,71 @@
         "buttonText": "Go"
     },
     "exitButtonText": "Onwards"
+  },
+  "357379":{
+    "action": "play",
+    "description": "Mouths to Feed",
+    "outfit": "MA_D",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Attend to a garden of arachnid potatoes",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+  "360949":{
+    "action": "play",
+    "description": "Troubled Times Recur",
+    "outfit": "Chess",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Supervise a visit from the Castellan of Balmoral",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+  "360422": {
+    "action": "play",
+    "description": "The Dreams of Rebel's Unionville",
+    "outfit": "mith",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Implant a protective misunderstanding",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+  "359129": {
+    "action": "play",
+    "description": "Landscape in Moonlight",
+    "outfit": "mith",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Look towards Balmoral",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+  "359534": {
+    "action": "play",
+    "description": "Denizens of the Neath",
+    "outfit": "Glasswork",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Fend off the incursions of Parabola",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
+  },
+  "359362": {
+    "action": "play",
+    "description": "The Creditor's Grievances",
+    "outfit": "Watchful",
+    "branch": {
+        "type": "titled_block_button",
+        "titleHint": "Provide the city with seismic defences",
+        "buttonText": "Go"
+    },
+    "exitButtonText": "Onwards"
   }
 }
